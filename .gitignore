@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Fetched sources and exported models: two of the five domains are non-commercial, so
+# nothing downloaded is committed. `shiftbench fetch` and `scripts/export_models.py`
+# rebuild them.
+data/
+models/
+
+# Results are written by `shiftbench analyse`. The small ones are committed on purpose
+# (see results/.gitignore) so the leaderboard in the README can be checked against them.
+results/*.parquet

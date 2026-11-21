@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync --python 3.12 --all-extras
+      - name: Lint
+        run: uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
+      - name: Types
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q --cov=shiftbench --cov-report=term --cov-fail-under=80
+
+  sql:
+    name: BigQuery DDL parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Lint the schema
+        run: uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql --dialect bigquery
