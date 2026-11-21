@@ -7,7 +7,14 @@ import time
 
 import pytest
 
-from shiftbench.thermal import DutyCycle, background_qos, limit_threads, memory_headroom
+from shiftbench.thermal import (
+    DutyCycle,
+    available_memory,
+    background_qos,
+    limit_threads,
+    memory_headroom,
+    pressure_level,
+)
 
 
 def test_limit_threads_caps_every_pool() -> None:
@@ -70,22 +77,74 @@ def test_memory_headroom_reports_full_when_the_platform_will_not_say(
     assert thermal.memory_headroom() == 1.0
 
 
+def test_available_memory_is_a_fraction() -> None:
+    assert 0.0 <= available_memory() <= 1.0
+
+
+def test_pressure_level_is_one_of_the_kernels_levels() -> None:
+    assert pressure_level() in (1, 2, 4)
+
+
+def test_the_kernel_signals_report_calm_when_they_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unreadable sysctls must never block a run on a machine they cannot measure."""
+    import shiftbench.thermal as thermal
+
+    def refuse(*_: object, **__: object) -> None:
+        raise OSError("no sysctl here")
+
+    monkeypatch.setattr(thermal.subprocess, "run", refuse)
+    assert thermal.available_memory() == 1.0
+    assert thermal.pressure_level() == 1
+    assert thermal.memory_is_tight() is False
+
+
+def test_the_gate_opens_when_free_pages_are_low_but_the_kernel_is_calm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bug this gate was rewritten for.
+
+    Free plus inactive plus speculative pages sit near 24% on the machine this runs on
+    whatever is happening, so a gate thresholded on them never opens. It parked a sibling
+    project's run for 43 minutes. Availability and pressure are what decide now.
+    """
+    import shiftbench.thermal as thermal
+
+    monkeypatch.setattr(thermal, "memory_headroom", lambda: 0.24)
+    monkeypatch.setattr(thermal, "available_memory", lambda: 0.41)
+    monkeypatch.setattr(thermal, "pressure_level", lambda: 2)
+    assert thermal.memory_is_tight() is False
+    assert thermal.wait_for_memory(poll=0.01) == 0.0
+
+
+def test_critical_pressure_waits_even_with_memory_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import shiftbench.thermal as thermal
+
+    monkeypatch.setattr(thermal, "available_memory", lambda: 0.80)
+    monkeypatch.setattr(thermal, "pressure_level", lambda: 4)
+    assert thermal.memory_is_tight() is True
+
+
 def test_waiting_for_memory_returns_at_once_when_there_is_room(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import shiftbench.thermal as thermal
 
-    monkeypatch.setattr(thermal, "memory_headroom", lambda: 0.9)
-    assert thermal.wait_for_memory(0.25, poll=0.01) == 0.0
+    monkeypatch.setattr(thermal, "memory_is_tight", lambda *_: False)
+    assert thermal.wait_for_memory(poll=0.01) == 0.0
 
 
 def test_waiting_for_memory_gives_up_rather_than_blocking_forever(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A gate that parks a run is as bad as no gate at all."""
     import shiftbench.thermal as thermal
 
-    monkeypatch.setattr(thermal, "memory_headroom", lambda: 0.01)
-    waited = thermal.wait_for_memory(0.25, poll=0.01, patience=0.05)
+    monkeypatch.setattr(thermal, "memory_is_tight", lambda *_: True)
+    waited = thermal.wait_for_memory(poll=0.01, patience=0.05)
     assert 0.0 < waited <= 0.06
 
 
@@ -94,6 +153,6 @@ def test_waiting_for_memory_returns_once_the_machine_frees_some(
 ) -> None:
     import shiftbench.thermal as thermal
 
-    readings = iter([0.05, 0.05, 0.6, 0.6])
-    monkeypatch.setattr(thermal, "memory_headroom", lambda: next(readings))
-    assert 0.0 < thermal.wait_for_memory(0.25, poll=0.01, patience=5.0) < 0.05
+    readings = iter([True, True, False, False])
+    monkeypatch.setattr(thermal, "memory_is_tight", lambda *_: next(readings))
+    assert 0.0 < thermal.wait_for_memory(poll=0.01, patience=5.0) < 0.05

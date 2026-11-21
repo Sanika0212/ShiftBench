@@ -24,7 +24,7 @@ import pandas as pd
 
 from shiftbench.detectors import Detector, build
 from shiftbench.thermal import (
-    MIN_HEADROOM,
+    MIN_AVAILABLE,
     DutyCycle,
     background_qos,
     limit_threads,
@@ -57,12 +57,13 @@ def chunks(frame: pd.DataFrame, size: int) -> Iterator[pd.DataFrame]:
 def score_domain(claims: pd.DataFrame, detector_name: str, detector: Detector | None = None,
                  chunk: int = 32, duty: float = 0.4, root: Path = SCORES,
                  models: Path | None = None, progress: bool = True,
-                 headroom: float = MIN_HEADROOM, background: bool = False) -> pd.DataFrame:
+                 min_available: float = MIN_AVAILABLE, background: bool = False) -> pd.DataFrame:
     """Score one domain with one detector, resuming from whatever is already cached.
 
-    ``headroom`` is the share of memory that must be free before each chunk; the loop waits
-    rather than pushing the machine into swap. ``background`` asks for background scheduling,
-    which is off by default because it costs far more wall clock than it saves in heat.
+    ``min_available`` is the share of memory the kernel must still consider available
+    before each chunk; below it the loop waits rather than pushing the machine into swap.
+    ``background`` asks for background scheduling, which is off by default because it costs
+    far more wall clock than it saves in heat.
     """
     limit_threads()
     if background:
@@ -77,9 +78,9 @@ def score_domain(claims: pd.DataFrame, detector_name: str, detector: Detector | 
         cycle = DutyCycle(duty)
         waited = 0.0
         for i, batch in enumerate(chunks(todo, chunk), start=1):
-            if headroom:
+            if min_available:
                 # Another application may have taken the memory since the last chunk.
-                waited += wait_for_memory(headroom)
+                waited += wait_for_memory(min_available)
             with cycle:
                 scores = detector.score(batch["claim"].tolist(), batch["evidence"].tolist())
             with path.open("a") as fh:

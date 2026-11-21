@@ -59,14 +59,14 @@ def test_chunks_cover_every_row_once() -> None:
 def test_scoring_writes_a_cache_and_resumes_from_it(tmp_path: Path) -> None:
     frame = claims(8)
     first = Counting()
-    out = score_domain(frame, "counting", first, chunk=4, duty=1.0, root=tmp_path, headroom=0.0)
+    out = score_domain(frame, "counting", first, chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     assert len(out) == 8
     assert out["support"].notna().all()
     assert len(first.seen) == 8
 
     # Second pass: everything is cached, so the detector is never asked again.
     second = Counting()
-    again = score_domain(frame, "counting", second, chunk=4, duty=1.0, root=tmp_path, headroom=0.0)
+    again = score_domain(frame, "counting", second, chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     assert second.seen == []
     assert np.allclose(again["support"].to_numpy(), out["support"].to_numpy())
 
@@ -74,9 +74,9 @@ def test_scoring_writes_a_cache_and_resumes_from_it(tmp_path: Path) -> None:
 def test_scoring_only_asks_for_what_is_missing(tmp_path: Path) -> None:
     frame = claims(8)
     score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path,
-                 headroom=0.0)
+                 min_available=0.0)
     detector = Counting()
-    score_domain(frame, "counting", detector, chunk=4, duty=1.0, root=tmp_path, headroom=0.0)
+    score_domain(frame, "counting", detector, chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     assert len(detector.seen) == 4  # the four that were not in the cache
 
 
@@ -92,7 +92,7 @@ def test_an_incomplete_cache_is_skipped_not_analysed(tmp_path: Path, capsys: pyt
     """Half a domain's scores would silently bias every number downstream."""
     frame = claims(8)
     score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path,
-                 headroom=0.0)
+                 min_available=0.0)
     with pytest.raises(RuntimeError, match="no detector has a complete set"):
         scored_frame(frame, ["counting"], root=tmp_path)
     assert "not scored yet" in capsys.readouterr().out
@@ -100,7 +100,7 @@ def test_an_incomplete_cache_is_skipped_not_analysed(tmp_path: Path, capsys: pyt
 
 def test_scored_frame_returns_the_detectors_that_are_complete(tmp_path: Path) -> None:
     frame = claims(8)
-    score_domain(frame, "counting", Counting(), chunk=4, duty=1.0, root=tmp_path, headroom=0.0)
+    score_domain(frame, "counting", Counting(), chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     out = scored_frame(frame, ["counting"], root=tmp_path)
     assert set(out["detector"]) == {"counting"}
     assert len(out) == 8
