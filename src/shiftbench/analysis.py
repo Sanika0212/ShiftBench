@@ -291,4 +291,14 @@ def leaderboard(pairs: pd.DataFrame, budget_curves: pd.DataFrame,
                 "labels_to_recover": float(enough["labels"].min()) if len(enough) else float("nan"),
             }
         )
-    return pd.DataFrame(rows).sort_values(["promise_kept", "mean_gap"], ascending=False)
+    board = pd.DataFrame(rows)
+    if board.empty:
+        return board
+    # Most promises kept first, and among detectors that keep as many, the one that keeps
+    # them for the fewest false alarms. The tie-break used to be mean_gap descending, which
+    # ranks the detector that over-recalls the most, and over-recalling is not honesty: it
+    # is flagging more than asked and charging the reader for it. A gap is good when it is
+    # near zero, not when it is large, so it cannot be a one-directional sort key.
+    return board.sort_values(
+        ["promise_kept", "mean_false_alarms"], ascending=[False, True]
+    ).reset_index(drop=True)

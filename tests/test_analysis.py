@@ -69,6 +69,34 @@ def test_the_matrix_covers_every_ordered_pair_including_each_domain_on_itself() 
     assert float(on_itself["achieved"].iloc[0]) > 0.80
 
 
+def test_the_leaderboard_breaks_a_tie_on_cost_not_on_over_flagging() -> None:
+    """Two detectors keeping every promise are separated by what keeping it cost.
+
+    The tie-break was mean_gap descending, which puts the detector that over-recalls the
+    most at the top. Over-recalling is not honesty: the gap is good near zero, not large,
+    so it cannot be a one-directional sort key. Built here rather than generated, because
+    the matrix holds both directions of every pair and a detector that over-recalls one way
+    breaks its promise the other, so the data generator cancels this out.
+    """
+    pairs = pd.DataFrame(
+        [
+            {"detector": d, "source": "x", "target": "y", "method": "split",
+             "threshold": 0.5, "promised": 0.90, "achieved": achieved,
+             "achieved_low": achieved - 0.01, "achieved_high": achieved + 0.01,
+             "false_alarms": alarms, "gap": achieved - 0.90, "n_source": 400,
+             "n_target": 400, "weight_spread": float("nan"),
+             "domain_separability": float("nan")}
+            for d, achieved, alarms in (
+                ("floods-it", 1.00, 0.80),  # keeps the promise by flagging almost everything
+                ("precise", 0.91, 0.12),  # keeps it and stays quiet
+            )
+        ]
+    )
+    board = leaderboard(pairs, pd.DataFrame(columns=["detector", "labels", "within_tolerance"]))
+    assert list(board["promise_kept"]) == [1.0, 1.0]  # the tie is real
+    assert list(board["detector"])[0] == "precise"
+
+
 def test_more_labels_buy_the_promise_back() -> None:
     curves = budgets(pd.concat([domain("b", shift=0.25, seed=1)], ignore_index=True))
     biggest = curves.sort_values("labels").iloc[-1]
