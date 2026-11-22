@@ -7,9 +7,9 @@ Stopping it costs at most one chunk.
 
     shiftbench score --domain legal --detector minicheck --limit 600
 
-Scores from another project can be imported instead of recomputed: Evidence Gate keeps
-per-item scores for the three domains it evaluated, and ``import_scores`` brings them in
-under the same cache format.
+Every score in this benchmark is computed here. Importing per-item scores from a sibling
+project that had run the same detector names on the same claims was tried and removed: see
+"Why none of these scores are imported" in the README for what the comparison measured.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -108,26 +107,6 @@ def score_domain(
     out["support"] = [done[c] for c in out["claim_id"]]
     out["detector"] = detector_name
     return out
-
-
-def import_scores(rows: list[dict[str, Any]], domain: str, detector_name: str, root: Path = SCORES) -> int:
-    """Bring per-item scores computed elsewhere into the cache, keyed the same way."""
-    path = cache_path(domain, detector_name, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Seen, not just already cached: the rows being imported can repeat an id themselves.
-    # SciFact cites one document twice for claim 1245, so its 1259 cached scores cover 1258
-    # pairs, and checking only the existing cache wrote that one twice and counted it twice.
-    seen = set(read_cache(path))
-    added = 0
-    with path.open("a") as fh:
-        for row in rows:
-            claim_id = str(row["claim_id"])
-            if claim_id in seen:
-                continue
-            seen.add(claim_id)
-            fh.write(json.dumps({"claim_id": claim_id, "support": float(row["support"])}) + "\n")
-            added += 1
-    return added
 
 
 def scored_frame(claims: pd.DataFrame, detectors: list[str], root: Path = SCORES) -> pd.DataFrame:

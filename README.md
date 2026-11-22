@@ -67,9 +67,7 @@ source text is redistributed here.
 
 Four of the five keep their rows on the Hub's automatic Parquet branch rather than on `main`,
 because they ship a loading script and `datasets` 3.x no longer runs scripts. The loaders ask
-for that revision by name. SciFact is taken from the bigbio mirror for the same reason, and
-that mirror is also the one a sibling project scored, so the claim ids line up with the
-cached scores `scripts/import_evidence_gate.py` reuses.
+for that revision by name. SciFact is taken from the bigbio mirror for the same reason.
 
 ## The detectors
 
@@ -96,12 +94,12 @@ entailment, neutral, so that read neutral as support.
 difference between each export and PyTorch, so an export can be checked before its scores
 are trusted.
 
-The cross-encoders run int8 quantized, and that is a decision the measurement forces rather
-than a performance preference. `scripts/import_evidence_gate.py` reuses per-item scores a
-sibling project already computed for the scientific and medical domains, and those are int8.
-Precision has to be uniform across domains or it confounds exactly what is being measured:
-a threshold fitted on int8 scores and used on full precision ones would shift for a reason
-that has nothing to do with domain. The full precision export is kept beside the int8 one
+The cross-encoders run int8 quantized, and precision is uniform across domains because
+otherwise it confounds exactly what is being measured: a threshold fitted on int8 scores and
+used on full precision ones would shift for a reason that has nothing to do with domain.
+Measured on real pairs rather than the export's own sample, int8 minicheck sits 0.010 from
+the full precision export on average, 0.08 at worst, correlates with it at Spearman 0.998,
+and flips no decision at a 0.5 cut. The full precision export is kept beside the int8 one
 so the cost of quantizing stays measurable, and `meta.json` in each export directory
 carries the measured difference from PyTorch.
 
@@ -117,6 +115,49 @@ actually reads:
 Both int8 figures sit under the 0.02 tolerance this benchmark reports recall against, and
 MiniCheck uses most of it. The full precision exports are faithful to PyTorch to seven
 digits or better, so the int8 column is the cost of quantizing and not of exporting.
+
+### Why none of these scores are imported
+
+A sibling project, Evidence Gate, had already scored SciFact and MedHallu with detectors
+carrying these same four names, on the same claims, and had kept its per-item scores.
+Reusing them looked free: the same checkpoints on the same pairs, and hours of laptop heat
+saved. A script here did exactly that, for seven of the twenty domain-detector cells.
+
+Recomputing those cells locally and correlating against the imported score, by Spearman:
+
+| detector | scientific | medical |
+| --- | --- | --- |
+| word-overlap | 0.57 | 0.64 |
+| embedding-similarity | 0.74 | 0.08 |
+| nli | 0.93 | not imported |
+| minicheck | 0.95 | 0.64 |
+
+None of it was the same measurement, and each row fails for its own reason.
+
+The two cheap detectors were never the same computation: that project's lexical checker is
+another library's, and its embedding detector is bge-small-en-v1.5 against all-MiniLM-L6-v2
+here, which is why the medical column reaches 0.08.
+
+The two cross-encoders are where the assumption looked safest and still broke. The
+checkpoint, the precision, the 512 token limit, the pair order and the tokenizer output are
+all identical, and running both projects' export files through the same code on the same
+pairs gives the same scores to four decimal places and a Spearman of 1.0000, so the exports
+are not the difference either. The difference is that the number stored over there is not a
+forward pass. It is the output of a grounding pipeline: the answer is split into claims and
+the claim scores are combined with a minimum, long passages are checked in windows of 250
+words and the windows combined with a maximum, and a short answer is checked together with
+its question. On MedHallu 42.6 percent of rows decompose into two or more claims, which is
+why every medical row above is low. On SciFact 99.8 percent are a single claim, but 34
+percent of the abstracts run past 250 words and are therefore windowed, which is the
+residual gap at 0.93 and 0.95. The medical pairs were not even the same pairs: the claim
+there is the answer alone, against each passage separately, and here it is the question and
+answer together against the passages joined.
+
+The name matched. The checkpoint matched. The export matched bit for bit. The number still
+meant something else, and no amount of checking ids and labels at the boundary would have
+caught it, because every id and every label agreed. A benchmark whose whole claim is that
+one number moves when the domain changes cannot afford a second thing moving with it, so
+every score here is computed by this repository and the import script is gone.
 
 ## Running it
 

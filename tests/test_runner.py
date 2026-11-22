@@ -13,7 +13,6 @@ from shiftbench.runner import (
     cache_path,
     chunks,
     features,
-    import_scores,
     read_cache,
     score_domain,
     scored_frame,
@@ -79,14 +78,6 @@ def test_scoring_only_asks_for_what_is_missing(tmp_path: Path) -> None:
     assert len(detector.seen) == 4  # the four that were not in the cache
 
 
-def test_imported_scores_land_in_the_same_cache(tmp_path: Path) -> None:
-    rows = [{"claim_id": "legal-0", "support": 0.2}, {"claim_id": "legal-1", "support": 0.8}]
-    assert import_scores(rows, "legal", "minicheck", root=tmp_path) == 2
-    assert import_scores(rows, "legal", "minicheck", root=tmp_path) == 0  # idempotent
-    cached = read_cache(cache_path("legal", "minicheck", tmp_path))
-    assert cached == {"legal-0": 0.2, "legal-1": 0.8}
-
-
 def test_an_incomplete_cache_is_skipped_not_analysed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -115,19 +106,12 @@ def test_features_are_the_score_and_two_lengths() -> None:
     assert np.allclose(f[:, 1], frame["claim"].str.len().to_numpy())
 
 
-def test_importing_the_same_id_twice_writes_it_once(tmp_path: Path) -> None:
-    """The rows being imported can repeat an id, not just collide with the cache.
-
-    SciFact cites one document twice for claim 1245, so Evidence Gate's 1259 cached scores
-    cover 1258 pairs. Checking only the existing cache wrote that pair twice.
-    """
-    rows = [
-        {"claim_id": "a", "support": 0.1},
-        {"claim_id": "a", "support": 0.9},
-        {"claim_id": "b", "support": 0.5},
-    ]
-    assert import_scores(rows, "scientific", "fake", root=tmp_path) == 2
-    cached = read_cache(cache_path("scientific", "fake", tmp_path))
-    assert cached == {"a": 0.1, "b": 0.5}
-    # A second pass adds nothing.
-    assert import_scores(rows, "scientific", "fake", root=tmp_path) == 0
+def test_the_cache_is_one_jsonl_per_domain_and_detector(tmp_path: Path) -> None:
+    """A resumed run finds its work by this path and these keys, so both are pinned."""
+    frame = claims(4)
+    score_domain(frame, "counting", Counting(), chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
+    path = cache_path("legal", "counting", tmp_path)
+    assert path.name == "legal-counting.jsonl"
+    cached = read_cache(path)
+    assert sorted(cached) == sorted(frame["claim_id"])
+    assert all(isinstance(v, float) for v in cached.values())

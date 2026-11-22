@@ -55,7 +55,7 @@ DOMAINS: dict[str, Domain] = {
         key="scientific",
         # bigbio's mirror, not allenai/scifact: the original ships a loading script and no
         # data files, and datasets 3.x no longer runs scripts. This is also the mirror
-        # Evidence Gate scored, so the claim ids here match the scores imported from it.
+        # The bigbio mirror, which keeps its rows on a Parquet branch this can read.
         repo="bigbio/scifact",
         revision=PARQUET,
         files=(

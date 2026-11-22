@@ -19,8 +19,7 @@ Three detectors are exported. The names match ``shiftbench.detectors.build``:
 | minicheck | lytang/MiniCheck-RoBERTa-Large | supported probability |
 
 The cross-encoders are quantized to int8 and the detectors load the int8 directory, because
-that is what ``scripts/import_evidence_gate.py`` brings in for the scientific and medical
-domains. Precision has to be uniform across domains or it confounds the thing being
+that is what every domain is scored with. Precision has to be uniform or it confounds the thing being
 measured: a threshold fitted on int8 scores and applied to full precision ones would shift
 for a reason that has nothing to do with domain. The full precision export is kept beside
 it so the quantization cost stays measurable.
