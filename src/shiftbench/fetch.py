@@ -266,6 +266,11 @@ def financial(root: Path = RAW) -> pd.DataFrame:
             raw = raw.tolist()
         # Only the sentences. Each element is {sentence, hrefs}, and the hrefs are archive
         # URLs: noise to a grounding checker, and tokens spent out of the 512 the model has.
+        # They also leaked the label. A refuted claim carries more archived sources, so the
+        # count of URLs alone separates unsupported from supported at AUROC 0.570, which is
+        # most of the 0.580 the embedding detector scored on this domain while they were in
+        # the evidence. Dropping them takes that detector to 0.523, and the fall is a leak
+        # being removed rather than a capability being lost.
         if isinstance(raw, list | tuple):
             raw = [e["sentence"] if isinstance(e, dict) else e for e in raw]
         evidence = text(raw)

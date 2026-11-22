@@ -60,6 +60,13 @@ supports it. Everything else about the original dataset is dropped.
 | legal | ContractNLI | a hypothesis about a contract against its spans | CC BY-NC-SA 4.0 |
 | financial | Fin-Fact | a financial claim against a fact checker's evidence | Apache 2.0 |
 
+Fin-Fact ships its evidence as records of a sentence and the URLs a fact checker archived
+for it, and only the sentences are used. The URLs leaked: a refuted claim carries more
+archived sources, so the count of URLs alone separates unsupported from supported at AUROC
+0.570, and the embedding detector scored 0.580 on this domain while they sat in the evidence
+against 0.523 without them. A benchmark about whether evidence supports a claim cannot score
+a detector for counting the citations around it.
+
 Three of the five are not redistributed here. SciFact and ContractNLI carry non-commercial
 licences, and MedHallu's terms have to be read off its dataset card, so this repository ships
 loaders and nothing else. `shiftbench fetch` downloads into `data/`, which is gitignored. No
