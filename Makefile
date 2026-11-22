@@ -25,7 +25,7 @@ readme:             ## fill the README's results section from results/
 readme-check:       ## fail when the README and results/ disagree
 	uv run python scripts/render_readme.py --check
 
-check: lint types test sql-check ## everything CI runs
+check: lint types test readme-check sql-check ## everything CI runs
 
 fetch: ## download the five domains into data/
 	uv run shiftbench fetch

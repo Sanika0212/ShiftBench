@@ -24,6 +24,8 @@ jobs:
         run: uv run mypy
       - name: Tests
         run: uv run pytest -q --cov=shiftbench --cov-report=term --cov-fail-under=80
+      - name: The README matches the results it is rendered from
+        run: uv run python scripts/render_readme.py --check
 
   sql:
     name: BigQuery DDL parses
@@ -32,4 +34,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Lint the schema
-        run: uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql --dialect bigquery
+        run: uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql
