@@ -12,9 +12,10 @@ threshold on that number when the domain changes.
 | minicheck | a fact-checking model trained for exactly this judgement | medium |
 | judge | a local instruction model asked to answer supported or not | slow |
 
-The ONNX detectors load exported models from a directory. The same exports are used by
-Evidence Gate, and `scripts/export_models.py` rebuilds them from the Hub, so a reader with
-neither can still reproduce the numbers.
+The ONNX detectors load exported models from a directory, and `scripts/export_models.py`
+rebuilds them from the Hub, so a reader without the directory can still reproduce the
+numbers. Each export records the sequence length it was traced and parity-checked at, and
+`token_limit` treats that, and the model's own position table, as ceilings.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from typing import Any, Protocol
 import numpy as np
 
 MODELS = Path(os.environ.get("SB_MODELS", "models"))
+# Used only when an export recorded no length of its own; every export here records one.
+DEFAULT_MAX_TOKENS = 512
 WORD = re.compile(r"[a-z0-9']+")
 STOP = {
     "a",
@@ -89,12 +92,39 @@ class WordOverlap:
         return np.asarray(out, dtype=np.float32)
 
 
+def token_limit(directory: Path, requested: int | None = None) -> int:
+    """How long a sequence this export can actually be given, not how long we would like.
+
+    Two ceilings, and the lower one wins. ``meta.json`` records the length the export was
+    traced and parity-checked at, so a longer sequence is outside what was verified. The
+    model's position table is harder still: RoBERTa numbers positions from pad_token_id + 1,
+    so 514 rows leave 512 reachable, and one token more fails inside onnxruntime instead of
+    being truncated. DeBERTa's relative attention has no such table, so there only meta.json
+    applies.
+
+    This was a hardcoded 1024. It scored the two domains whose pairs happen to be short,
+    then died on the first long one, which is the worse of the two ways to be wrong: the
+    scores it did produce were taken from a context longer than the export was checked at.
+    """
+    meta_path = directory / "meta.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    limit = int(meta.get("max_length", requested or DEFAULT_MAX_TOKENS))
+    if requested is not None:
+        limit = min(limit, requested)
+    config = json.loads((directory / "config.json").read_text())
+    rows = int(config.get("max_position_embeddings", 0) or 0)
+    if rows and not config.get("relative_attention"):
+        reserved = 2 if str(config.get("model_type", "")).endswith("roberta") else 0
+        limit = min(limit, rows - reserved)
+    return limit
+
+
 class OnnxEmbedding:
     """Cosine similarity between sentence embeddings of the claim and the evidence."""
 
     name = "embedding-similarity"
 
-    def __init__(self, directory: Path | None = None, max_tokens: int = 512) -> None:
+    def __init__(self, directory: Path | None = None, max_tokens: int | None = None) -> None:
         import onnxruntime as ort
         from transformers import AutoTokenizer
 
@@ -105,7 +135,7 @@ class OnnxEmbedding:
         self.session = ort.InferenceSession(
             str(path / "model.onnx"), options, providers=["CPUExecutionProvider"]
         )
-        self.max_tokens = max_tokens
+        self.max_tokens = token_limit(path, max_tokens)
 
     def _embed(self, texts: list[str]) -> np.ndarray:
         enc = self.tokenizer(
@@ -131,8 +161,7 @@ def supported_class(directory: Path) -> int:
     cross-encoder/nli-deberta-v3-base labels 0 contradiction, 1 entailment, 2 neutral, so
     -1 read the probability of neutral and called it support.
 
-    That one mattered more than most. The scientific and medical scores are imported from a
-    sibling project, which selects entailment by name, so the same detector would have meant
+    That one mattered more than most: the same detector name would have meant
     entailment on two domains and neutral on the three scored here. A benchmark that exists
     to measure what happens to a detector across domains would have reported its own
     indexing error as domain shift.
@@ -154,7 +183,11 @@ class OnnxPairClassifier:
     """An ONNX cross-encoder: the probability of the class that means supported."""
 
     def __init__(
-        self, name: str, directory: Path, supported_index: int | None = None, max_tokens: int = 1024
+        self,
+        name: str,
+        directory: Path,
+        supported_index: int | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         import onnxruntime as ort
         from transformers import AutoTokenizer
@@ -168,7 +201,7 @@ class OnnxPairClassifier:
             str(path / "model.onnx"), options, providers=["CPUExecutionProvider"]
         )
         self.supported_index = supported_class(path) if supported_index is None else supported_index
-        self.max_tokens = max_tokens
+        self.max_tokens = token_limit(path, max_tokens)
 
     def score(self, claims: list[str], evidence: list[str]) -> np.ndarray:
         enc = self.tokenizer(
