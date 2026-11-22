@@ -7,6 +7,7 @@ import pytest
 
 from shiftbench.calibration import (
     achieved_recall,
+    corrected_level,
     apply_mondrian,
     bootstrap_recall,
     density_ratio,
@@ -70,6 +71,38 @@ def test_weighted_quantile_matches_the_plain_one_when_weights_are_equal() -> Non
     values = np.linspace(0, 1, 101)
     weights = np.ones_like(values)
     assert weighted_quantile(values, weights, 0.9) == pytest.approx(0.9, abs=0.02)
+
+
+def test_every_scheme_is_calibrated_at_the_same_level() -> None:
+    """The weighted scheme was held to a different level than the other three.
+
+    It took the quantile at the promised target while split, mondrian and oracle took it at
+    the corrected one, so the weighted threshold was systematically lower and recalled less
+    for a reason that has nothing to do with reweighting. With uniform weights the density
+    ratio does nothing, so the two must agree exactly. Measured before the fix: 4.0 points
+    of recall at 50 unsupported claims, 1.9 at 100, against a 2 point tolerance.
+    """
+    rng = np.random.default_rng(0)
+    for n in (50, 100, 300, 1000):
+        scores = rng.normal(size=n)
+        unsupported = np.ones(n, dtype=bool)
+        plain = threshold_for_recall(scores, unsupported, 0.90)
+        weighted = weighted_threshold(scores, unsupported, np.ones(n), 0.90)
+        assert weighted == plain, f"schemes disagree at n={n}"
+
+
+def test_the_threshold_is_the_conformal_order_statistic() -> None:
+    """The ceil((n + 1) * target)-th smallest unsupported score, exactly.
+
+    numpy's "higher" method spaces n values over n - 1 intervals, which landed one position
+    further up and made the split scheme over-promise: 0.9215 achieved against 0.90 asked
+    at 50 claims. It also could not agree with the weighted path, which spaces over n.
+    """
+    scores = np.arange(1.0, 51.0)  # 50 values, so the order statistic is readable
+    unsupported = np.ones(50, dtype=bool)
+    expected = float(np.ceil(51 * 0.90))  # the 46th smallest, which is the value 46.0
+    assert threshold_for_recall(scores, unsupported, 0.90) == expected
+    assert corrected_level(50, 0.90) == pytest.approx(0.92)
 
 
 def test_density_ratio_is_larger_for_source_claims_that_look_like_the_target() -> None:

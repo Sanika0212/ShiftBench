@@ -125,22 +125,51 @@ def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
     return rows
 
 
+def halves(frame: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a domain in two, keeping the share of unsupported claims the same in each.
+
+    A domain measured against itself needs a held-out half, and the half has to be drawn
+    inside each class rather than over the rows. An unstratified draw can hand one side
+    most of the unsupported claims and the other almost none, and the threshold is fitted
+    on unsupported claims alone: on the test fixture here it produced 302 of them on one
+    side and none at all on the other, which is not a measurement, it is a crash.
+
+    That happened because the draw used a fixed seed and the fixture's own labels came from
+    the same stream, so "below 0.5" was nested inside "below 0.4" and the two masks agreed
+    perfectly. Stratifying removes the whole class of accident: neither side can come out
+    empty whatever the stream does, so the measurement no longer depends on the data having
+    been built with a different seed than the code reading it.
+    """
+    rng = np.random.default_rng(seed)
+    left: list[np.ndarray] = []
+    right: list[np.ndarray] = []
+    unsupported = frame["unsupported"].to_numpy(dtype=bool)
+    for mask in (unsupported, ~unsupported):
+        idx = np.flatnonzero(mask)
+        rng.shuffle(idx)
+        cut = len(idx) // 2
+        left.append(idx[:cut])
+        right.append(idx[cut:])
+    return frame.iloc[np.sort(np.concatenate(left))], frame.iloc[np.sort(np.concatenate(right))]
+
+
 def matrix(scored: pd.DataFrame, promised: float = TARGET, seed: int = 0) -> pd.DataFrame:
     """Every detector by every ordered pair of domains, including each domain on itself."""
     rows: list[dict[str, Any]] = []
     for detector, per_detector in scored.groupby("detector"):
         domains = sorted(per_detector["domain"].unique())
         for source in domains:
-            s = per_detector[per_detector["domain"] == source]
+            whole = per_detector[per_detector["domain"] == source]
             for target in domains:
-                t = per_detector[per_detector["domain"] == target]
+                # Bound to new names rather than reassigned: rebinding the source inside
+                # this loop left every pair after the diagonal calibrated on half of it.
                 if source == target:
-                    # Held out half, so a domain on itself is still an honest measurement.
-                    rng = np.random.default_rng(seed)
-                    half = rng.random(len(s)) < 0.5
-                    s, t = s[half], s[~half]
+                    fit, measure = halves(whole, seed)
+                else:
+                    fit = whole
+                    measure = per_detector[per_detector["domain"] == target]
                 rows += [p.as_row() for p in
-                         evaluate_pair(s, t, str(detector), promised=promised, seed=seed)]
+                         evaluate_pair(fit, measure, str(detector), promised=promised, seed=seed)]
     return pd.DataFrame(rows)
 
 
@@ -184,21 +213,48 @@ def drift(scored: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
 def drift_predicts_loss(pairs: pd.DataFrame, drifts: pd.DataFrame) -> dict[str, float]:
     """Would a drift statistic have warned before the labels arrived?
 
-    Spearman correlation across pairs between each statistic and the recall actually lost by
-    the shipped (split) threshold.
+    Spearman correlation across ordered pairs between each statistic and the recall the
+    shipped (split) threshold actually lost, reported three ways, because one number here
+    is misleading.
+
+    A drift statistic on the scores is close to direction-blind: it is nearly the same for a
+    pair and for its reverse, while the loss is not. Shipping a threshold from an easy
+    domain to a hard one loses recall; the reverse over-recalls, and that direction pins the
+    loss at its floor however large the drift is. So a correlation taken against the signed
+    loss over every pair mixes a relationship with its own mirror image and comes out weak
+    for a reason that is arithmetic rather than empirical.
+
+    What a team can act on is whether the promise is about to break, and by how much, among
+    the pairs where it does break. That is ``*_undercovering``. The correlation against the
+    absolute loss is reported too, as the version that does not condition on the answer.
+    Measured on the synthetic fixture in the tests: 0.88 undercovering, 0.57 absolute, 0.19
+    signed. A high statistic is a reason to recalibrate and measure, not a reading of which
+    way the promise moved.
     """
     from scipy.stats import spearmanr
+
+    def rho(x: np.ndarray, y: np.ndarray) -> float:
+        if len(x) < 4 or np.ptp(x) == 0 or np.ptp(y) == 0:
+            return float("nan")
+        return float(spearmanr(x, y).statistic)
 
     split = pairs[(pairs["method"] == "split") & (pairs["source"] != pairs["target"])]
     merged = split.merge(drifts, on=["detector", "source", "target"], how="inner")
     if len(merged) < 4:
         return {"pairs": float(len(merged))}
     loss = (merged["promised"] - merged["achieved"]).to_numpy()
-    return {
+    under = merged[loss > 0]
+    under_loss = (under["promised"] - under["achieved"]).to_numpy()
+    out = {
         "pairs": float(len(merged)),
-        "psi_spearman": float(spearmanr(merged["psi"].to_numpy(), loss).statistic),
-        "mmd_spearman": float(spearmanr(merged["mmd"].to_numpy(), loss).statistic),
+        "undercovering_pairs": float(len(under)),
     }
+    for name in ("psi", "mmd"):
+        statistic = merged[name].to_numpy()
+        out[f"{name}_spearman"] = rho(statistic, loss)
+        out[f"{name}_spearman_absolute"] = rho(statistic, np.abs(loss))
+        out[f"{name}_spearman_undercovering"] = rho(under[name].to_numpy(), under_loss)
+    return out
 
 
 def leaderboard(pairs: pd.DataFrame, budget_curves: pd.DataFrame,

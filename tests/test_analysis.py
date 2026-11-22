@@ -87,15 +87,56 @@ def test_drift_statistics_see_the_shift_and_not_the_absence_of_one() -> None:
     assert drifts.loc[("a", "shifted"), "mmd_p_value"] < 0.05
 
 
-def test_drift_correlates_with_the_recall_actually_lost() -> None:
+def test_drift_predicts_the_size_of_the_miss_where_the_promise_breaks() -> None:
+    """A label-free warning, measured where it would be acted on.
+
+    This asserted a correlation of 0.3 against the signed loss over every ordered pair and
+    got 0.19, which is not the code being wrong. A score-distribution statistic is close to
+    direction-blind, so it is nearly equal for a pair and for its reverse, while the loss is
+    not: easy source to hard target loses recall, the reverse over-recalls and pins the loss
+    at its floor no matter how large the drift. Correlating against the signed loss over
+    both directions mixes a relationship with its mirror image.
+
+    Among the pairs where the promise actually breaks, PSI tracks the size of the break
+    closely, which is the claim worth making and the one a team could use.
+    """
     frames = [domain("a", seed=0)]
     for i, shift in enumerate([0.1, 0.2, 0.3, 0.4], start=1):
         frames.append(domain(f"d{i}", shift=shift, seed=10 + i))
     scored = pd.concat(frames, ignore_index=True)
     pairs = matrix(scored)
     summary = drift_predicts_loss(pairs, drift(scored))
-    assert summary["pairs"] >= 4
-    assert summary["psi_spearman"] > 0.3  # a label-free warning worth acting on
+    assert summary["pairs"] == 20
+    assert summary["undercovering_pairs"] == 10
+    assert summary["psi_spearman_undercovering"] > 0.7
+    assert summary["psi_spearman_absolute"] > 0.4
+    # The signed figure is the weak one, and it stays reported rather than dropped.
+    assert summary["psi_spearman"] < summary["psi_spearman_undercovering"]
+
+
+def test_a_drift_statistic_cannot_tell_which_way_the_shift_hurts() -> None:
+    """Why the signed correlation is weak: the statistic is near enough symmetric.
+
+    PSI bins on the source, so it is not exactly symmetric, but a pair and its reverse come
+    out close together while their losses have opposite signs. This is the limitation that
+    stops a high reading from being read as "you are under-covering".
+    """
+    scored = pd.concat(
+        [domain("easy", seed=0), domain("hard", shift=0.4, seed=11)], ignore_index=True
+    )
+    drifts = drift(scored).set_index(["source", "target"])
+    forward = float(drifts.loc[("easy", "hard"), "psi"])
+    backward = float(drifts.loc[("hard", "easy"), "psi"])
+    assert forward > 0.1 and backward > 0.1
+    assert abs(forward - backward) < max(forward, backward)
+
+    split = matrix(scored)
+    split = split[(split["method"] == "split") & (split["source"] != split["target"])]
+    losses = {
+        (r.source, r.target): r.promised - r.achieved for r in split.itertuples()
+    }
+    assert losses[("easy", "hard")] > 0.05  # the promise breaks
+    assert losses[("hard", "easy")] < 0.0  # the reverse over-recalls
 
 
 def test_the_leaderboard_ranks_the_honest_detector_first() -> None:

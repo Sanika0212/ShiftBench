@@ -27,20 +27,41 @@ import numpy as np
 RNG = np.random.default_rng
 
 
+def corrected_level(n: int, target: float) -> float:
+    """The quantile level that makes a promised recall of ``target`` hold on ``n`` claims.
+
+    The conformal correction, ``ceil((n + 1) * target) / n``: on a new exchangeable sample
+    the promise then holds with the stated probability rather than only in expectation. It
+    matters most where the labels are fewest, which is exactly where this benchmark looks.
+
+    Every scheme has to use this. It was applied to the split, mondrian and oracle
+    thresholds and not to the weighted one, which handicapped the weighted scheme by an
+    amount that has nothing to do with reweighting: measured with uniform weights, so the
+    density ratio did nothing at all, 4.0 points of recall at 50 unsupported claims, 1.9 at
+    100 and 0.7 at 300, against a tolerance of 2 points. A benchmark whose output is a
+    ranking of these schemes cannot hold one of them to a different level.
+    """
+    return float(min(1.0, np.ceil((n + 1) * target) / n))
+
+
 def threshold_for_recall(scores: np.ndarray, unsupported: np.ndarray, target: float) -> float:
-    """The largest threshold whose recall on these claims is at least ``target``.
+    """The smallest threshold whose recall on these claims is at least ``target``.
 
     Scores are "how supported this claim looks", so a claim is flagged when its score falls
-    below the threshold. With ``n`` unsupported claims the quantile is taken at
-    ``ceil((n + 1) * target) / n``, the conformal correction: on a new exchangeable sample
-    the promise then holds with the stated probability rather than only in expectation.
+    below the threshold. A larger threshold flags more and recalls more, so the threshold
+    that meets the promise at the least cost in false alarms is the smallest one that meets
+    it, taken at the level ``corrected_level`` gives.
     """
     flagged = np.asarray(scores)[np.asarray(unsupported, dtype=bool)]
     if flagged.size == 0:
         raise ValueError("no unsupported claims to calibrate on")
+    # The ceil((n + 1) * target)-th smallest, which is what the corrected level means. Taken
+    # with numpy's "higher" this landed one position further up, because numpy spaces n
+    # values over n - 1 intervals: at 50 claims that is 0.9215 achieved against a promised
+    # 0.90, and it did not match the weighted scheme, which spaces them over n.
     n = flagged.size
-    level = min(1.0, np.ceil((n + 1) * target) / n)
-    return float(np.quantile(flagged, level, method="higher"))
+    rank = int(np.ceil(corrected_level(n, target) * n))
+    return float(np.sort(flagged)[min(n, max(1, rank)) - 1])
 
 
 def achieved_recall(scores: np.ndarray, unsupported: np.ndarray, threshold: float) -> float:
@@ -116,12 +137,18 @@ def weighted_quantile(values: np.ndarray, weights: np.ndarray, level: float) -> 
 
 def weighted_threshold(scores: np.ndarray, unsupported: np.ndarray, weights: np.ndarray,
                        target: float) -> float:
-    """``threshold_for_recall`` with each source claim weighted towards the target domain."""
+    """``threshold_for_recall`` with each source claim weighted towards the target domain.
+
+    Takes the same corrected level as the unweighted schemes, so that a difference between
+    them is a difference between the schemes. The textbook weighted conformal correction
+    puts the mass of one more point at infinity and depends on the weights themselves; this
+    uses the unweighted correction instead, which is the one the other schemes get.
+    """
     mask = np.asarray(unsupported, dtype=bool)
     flagged, w = np.asarray(scores)[mask], np.asarray(weights)[mask]
     if flagged.size == 0:
         raise ValueError("no unsupported claims to calibrate on")
-    return weighted_quantile(flagged, w, target)
+    return weighted_quantile(flagged, w, corrected_level(flagged.size, target))
 
 
 def mondrian_thresholds(scores: np.ndarray, unsupported: np.ndarray, groups: np.ndarray,

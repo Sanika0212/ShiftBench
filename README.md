@@ -28,7 +28,13 @@ in the domain they were tuned on.
    many draws. The curve says what k buys.
 5. **Ask whether anything warned first**: PSI and MMD on the score distributions need no
    labels at all, so if either correlates with the recall actually lost, it is an early
-   warning worth acting on.
+   warning worth acting on. Both are close to direction-blind, coming out nearly the same
+   for a pair and for its reverse while the loss does not: an easy source deployed on a
+   hard target loses recall, and the reverse over-recalls. So the correlation is reported
+   among the pairs where the promise actually breaks, against the absolute loss, and
+   against the signed loss over every pair, which is the weakest of the three for a reason
+   that is arithmetic rather than empirical. A high reading is a reason to recalibrate and
+   measure, not a reading of which way the promise moved.
 
 A domain measured against itself uses a held-out half, so the diagonal of the matrix is an
 honest number rather than a tautology.
