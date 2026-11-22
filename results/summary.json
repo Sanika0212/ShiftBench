@@ -1,0 +1,24 @@
+{
+  "promised": 0.9,
+  "detectors": [
+    "word-overlap"
+  ],
+  "domains": [
+    "financial",
+    "general",
+    "legal",
+    "medical",
+    "scientific"
+  ],
+  "claims": 3000,
+  "drift_predicts_loss": {
+    "pairs": 20.0,
+    "undercovering_pairs": 10.0,
+    "psi_spearman": -0.31483850153522114,
+    "psi_spearman_absolute": 0.6641573952906955,
+    "psi_spearman_undercovering": 0.7333333333333332,
+    "mmd_spearman": -0.027241819462578278,
+    "mmd_spearman_absolute": 0.7797629944989267,
+    "mmd_spearman_undercovering": 0.7454545454545454
+  }
+}

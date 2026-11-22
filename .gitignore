@@ -7,12 +7,16 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Fetched sources and exported models: two of the five domains are non-commercial, so
-# nothing downloaded is committed. `shiftbench fetch` and `scripts/export_models.py`
-# rebuild them.
+# Fetched sources and exported models. Three of the five domains are not redistributable
+# here: SciFact and ContractNLI are non-commercial and MedHallu's terms have to be read off
+# its dataset card, so nothing downloaded is committed. `shiftbench fetch` and
+# `scripts/export_models.py` rebuild both.
 data/
 models/
 
-# Results are written by `shiftbench analyse`. The small ones are committed on purpose
-# (see results/.gitignore) so the leaderboard in the README can be checked against them.
-results/*.parquet
+# Console output from local runs. The numbers they produce live in results/.
+logs-*.log
+
+# results/ is committed on purpose: the four tables come to about 36 KB together and are the
+# evidence the README's numbers are rendered from, so they belong with the code that made
+# them rather than only on the machine that ran it.

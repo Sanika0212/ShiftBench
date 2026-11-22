@@ -105,6 +105,17 @@ def frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
     """Every loader returns this shape, so the runner never knows which domain it has."""
     df = pd.DataFrame(rows, columns=COLUMNS)
     df["supported"] = df["supported"].astype(bool)
+    # A claim with nothing to check it against is not a grounding task, and a detector's
+    # score on one is an artifact of how it handles the empty string rather than a judgement:
+    # word overlap returns 0.0 for every one of them, which reads as maximally unsupported
+    # whatever the label says. Fin-Fact ships 24 of these in 600. Dropped here, after the
+    # ids are assigned, so an id stays stable whether or not its row survives.
+    usable = df["claim"].str.strip().str.len().gt(0) & df["evidence"].str.strip().str.len().gt(0)
+    if not usable.all():
+        dropped = int((~usable).sum())
+        name = str(df["domain"].iloc[0]) if len(df) else "?"
+        print(f"  {name}: dropped {dropped} of {len(df)} claims with no claim or no evidence")
+        df = df[usable].reset_index(drop=True)
     if df["claim_id"].duplicated().any():
         raise ValueError("claim ids must be unique within a domain")
     return df

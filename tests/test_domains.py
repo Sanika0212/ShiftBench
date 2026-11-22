@@ -65,3 +65,45 @@ def test_unified_prefers_the_combined_file_when_it_exists(tmp_path: Path) -> Non
     out = unified(tmp_path)
     assert len(out) == 4
     assert set(out["domain"]) == {"legal", "financial"}
+
+
+def test_a_claim_with_no_evidence_is_dropped(capsys: pytest.CaptureFixture[str]) -> None:
+    """Fin-Fact ships 101 of these in 2,758, and a detector's score on one is an artifact.
+
+    Word overlap returns 0.0 for an empty passage, which reads as maximally unsupported
+    whatever the label says, so these rows are noise with a label attached.
+    """
+    rows = [
+        {
+            "claim_id": f"d-{i}",
+            "domain": "financial",
+            "claim": claim,
+            "evidence": evidence,
+            "supported": True,
+            "group_id": "g",
+            "source": "s",
+        }
+        for i, (claim, evidence) in enumerate(
+            [("a real claim", "real evidence"), ("no evidence here", "   "), ("", "orphaned")]
+        )
+    ]
+    out = frame(rows)
+    assert list(out["claim_id"]) == ["d-0"]
+    assert "dropped 2 of 3" in capsys.readouterr().out
+
+
+def test_ids_stay_stable_when_a_row_is_dropped() -> None:
+    """The ids are assigned before the drop, so a surviving row keeps the id it had."""
+    rows = [
+        {
+            "claim_id": f"d-{i}",
+            "domain": "financial",
+            "claim": "" if i == 1 else "claim",
+            "evidence": "evidence",
+            "supported": i % 2 == 0,
+            "group_id": "g",
+            "source": "s",
+        }
+        for i in range(4)
+    ]
+    assert list(frame(rows)["claim_id"]) == ["d-0", "d-2", "d-3"]
