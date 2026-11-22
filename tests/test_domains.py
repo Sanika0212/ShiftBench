@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from shiftbench.domains import COLUMNS, DOMAINS, frame, load, unified

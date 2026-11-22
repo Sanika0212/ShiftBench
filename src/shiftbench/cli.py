@@ -54,8 +54,7 @@ def main(argv: list[str] | None = None) -> None:
         for domain in args.domain or sorted(DOMAINS):
             claims = build(domain, limit=args.limit, seed=args.seed)
             share = float(claims["supported"].mean())
-            print(f"{domain}: {len(claims)} claims, {share:.0%} supported, "
-                  f"licence {DOMAINS[domain].licence}")
+            print(f"{domain}: {len(claims)} claims, {share:.0%} supported, licence {DOMAINS[domain].licence}")
     elif args.command == "score":
         from shiftbench.domains import load
         from shiftbench.runner import score_domain
@@ -63,8 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         for detector in args.detector or list(DEFAULT_DETECTORS):
             for domain in args.domain or sorted(DOMAINS):
                 claims = load(domain)
-                score_domain(claims, detector, chunk=args.chunk, duty=args.duty,
-                             models=args.models)
+                score_domain(claims, detector, chunk=args.chunk, duty=args.duty, models=args.models)
     elif args.command == "analyse":
         import pandas as pd
 
@@ -80,14 +78,13 @@ def main(argv: list[str] | None = None) -> None:
         drifts = drift(scored, seed=args.seed)
         board = leaderboard(pairs, curves)
         RESULTS.mkdir(parents=True, exist_ok=True)
-        for name, table in (("pairs", pairs), ("budgets", curves), ("drift", drifts),
-                            ("leaderboard", board)):
+        for name, table in (("pairs", pairs), ("budgets", curves), ("drift", drifts), ("leaderboard", board)):
             table.to_parquet(RESULTS / f"{name}.parquet", index=False)
         summary = {
             "promised": args.promised,
             "detectors": sorted(scored["detector"].unique()),
             "domains": sorted(scored["domain"].unique()),
-            "claims": int(len(claims)),
+            "claims": len(claims),
             "drift_predicts_loss": drift_predicts_loss(pairs, drifts),
         }
         (RESULTS / "summary.json").write_text(json.dumps(summary, indent=2, default=float) + "\n")

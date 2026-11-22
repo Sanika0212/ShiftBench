@@ -89,8 +89,9 @@ class Interval:
         return self.low <= value <= self.high
 
 
-def bootstrap_recall(scores: np.ndarray, unsupported: np.ndarray, threshold: float,
-                     draws: int = 2000, seed: int = 0) -> Interval:
+def bootstrap_recall(
+    scores: np.ndarray, unsupported: np.ndarray, threshold: float, draws: int = 2000, seed: int = 0
+) -> Interval:
     """A percentile interval on achieved recall, resampling the unsupported claims."""
     flagged = np.asarray(scores)[np.asarray(unsupported, dtype=bool)]
     if flagged.size == 0:
@@ -132,8 +133,7 @@ class Reweighting:
         return self.spread < 0.05 or self.separability >= 0.999
 
 
-def reweight(source_features: np.ndarray, target_features: np.ndarray,
-             seed: int = 0) -> Reweighting:
+def reweight(source_features: np.ndarray, target_features: np.ndarray, seed: int = 0) -> Reweighting:
     """How much each source claim looks like a target claim, and whether that means anything.
 
     A logistic classifier separates source from target; the ratio ``p / (1 - p)`` of its
@@ -162,8 +162,7 @@ def reweight(source_features: np.ndarray, target_features: np.ndarray,
     )
 
 
-def density_ratio(source_features: np.ndarray, target_features: np.ndarray,
-                  seed: int = 0) -> np.ndarray:
+def density_ratio(source_features: np.ndarray, target_features: np.ndarray, seed: int = 0) -> np.ndarray:
     """The weights alone, for callers that do not need the diagnostics."""
     return reweight(source_features, target_features, seed).weights
 
@@ -178,8 +177,9 @@ def weighted_quantile(values: np.ndarray, weights: np.ndarray, level: float) -> 
     return float(values[np.searchsorted(cumulative, level, side="left").clip(0, len(values) - 1)])
 
 
-def weighted_threshold(scores: np.ndarray, unsupported: np.ndarray, weights: np.ndarray,
-                       target: float) -> float:
+def weighted_threshold(
+    scores: np.ndarray, unsupported: np.ndarray, weights: np.ndarray, target: float
+) -> float:
     """``threshold_for_recall`` with each source claim weighted towards the target domain.
 
     Takes the same corrected level as the unweighted schemes, so that a difference between
@@ -194,8 +194,9 @@ def weighted_threshold(scores: np.ndarray, unsupported: np.ndarray, weights: np.
     return weighted_quantile(flagged, w, corrected_level(flagged.size, target))
 
 
-def mondrian_thresholds(scores: np.ndarray, unsupported: np.ndarray, groups: np.ndarray,
-                        target: float, minimum: int = 25) -> dict[str, float]:
+def mondrian_thresholds(
+    scores: np.ndarray, unsupported: np.ndarray, groups: np.ndarray, target: float, minimum: int = 25
+) -> dict[str, float]:
     """One threshold per group, falling back to the pooled one where a group is too small."""
     groups = np.asarray(groups)
     pooled = threshold_for_recall(scores, unsupported, target)
@@ -213,10 +214,15 @@ def apply_mondrian(thresholds: dict[str, float], groups: np.ndarray) -> np.ndarr
     return np.array([thresholds.get(str(g), pooled) for g in np.asarray(groups)])
 
 
-def labels_to_recover(scores: np.ndarray, unsupported: np.ndarray, target: float,
-                      budgets: tuple[int, ...] = (25, 50, 100, 200, 400),
-                      tolerance: float = 0.02, draws: int = 50,
-                      seed: int = 0) -> dict[int, dict[str, float]]:
+def labels_to_recover(
+    scores: np.ndarray,
+    unsupported: np.ndarray,
+    target: float,
+    budgets: tuple[int, ...] = (25, 50, 100, 200, 400),
+    tolerance: float = 0.02,
+    draws: int = 50,
+    seed: int = 0,
+) -> dict[int, dict[str, float]]:
     """Label ``k`` target claims, recalibrate on them, and measure on the rest.
 
     Returns, per budget, the mean achieved recall and the share of draws that land within
@@ -260,8 +266,9 @@ def psi(source: np.ndarray, target: np.ndarray, bins: int = 10) -> float:
     return float(np.sum((t - s) * np.log(t / s)))
 
 
-def mmd(source: np.ndarray, target: np.ndarray, permutations: int = 200, seed: int = 0,
-        max_n: int = 800) -> tuple[float, float]:
+def mmd(
+    source: np.ndarray, target: np.ndarray, permutations: int = 200, seed: int = 0, max_n: int = 800
+) -> tuple[float, float]:
     """RBF-kernel MMD^2 between two score samples, with a permutation p-value."""
     rng = RNG(seed)
     a = np.asarray(source).reshape(-1, 1)

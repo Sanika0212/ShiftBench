@@ -31,8 +31,33 @@ import numpy as np
 MODELS = Path(os.environ.get("SB_MODELS", "models"))
 WORD = re.compile(r"[a-z0-9']+")
 STOP = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "have", "in", "is",
-    "it", "its", "of", "on", "or", "that", "the", "this", "to", "was", "were", "which", "with",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "were",
+    "which",
+    "with",
 }
 
 
@@ -70,23 +95,23 @@ class OnnxEmbedding:
     name = "embedding-similarity"
 
     def __init__(self, directory: Path | None = None, max_tokens: int = 512) -> None:
-        from transformers import AutoTokenizer
-
         import onnxruntime as ort
+        from transformers import AutoTokenizer
 
         path = (directory or MODELS / "embedding").resolve()
         self.tokenizer = AutoTokenizer.from_pretrained(str(path))
         options = ort.SessionOptions()
         options.intra_op_num_threads = int(os.environ.get("OMP_NUM_THREADS", "2"))
-        self.session = ort.InferenceSession(str(path / "model.onnx"), options,
-                                            providers=["CPUExecutionProvider"])
+        self.session = ort.InferenceSession(
+            str(path / "model.onnx"), options, providers=["CPUExecutionProvider"]
+        )
         self.max_tokens = max_tokens
 
     def _embed(self, texts: list[str]) -> np.ndarray:
-        enc = self.tokenizer(texts, return_tensors="np", padding=True, truncation=True,
-                             max_length=self.max_tokens)
-        feeds = {i.name: enc[i.name].astype(np.int64) for i in self.session.get_inputs()
-                 if i.name in enc}
+        enc = self.tokenizer(
+            texts, return_tensors="np", padding=True, truncation=True, max_length=self.max_tokens
+        )
+        feeds = {i.name: enc[i.name].astype(np.int64) for i in self.session.get_inputs() if i.name in enc}
         hidden = self.session.run(None, feeds)[0]
         mask = enc["attention_mask"][..., None].astype(np.float32)
         pooled = (hidden * mask).sum(axis=1) / np.clip(mask.sum(axis=1), 1e-6, None)
@@ -122,37 +147,39 @@ def supported_class(directory: Path) -> int:
         return named[0]
     if len(labels) == 2:
         return 1
-    raise ValueError(
-        f"{directory}: cannot tell which of {sorted(labels.items())} means supported"
-    )
+    raise ValueError(f"{directory}: cannot tell which of {sorted(labels.items())} means supported")
 
 
 class OnnxPairClassifier:
     """An ONNX cross-encoder: the probability of the class that means supported."""
 
-    def __init__(self, name: str, directory: Path, supported_index: int | None = None,
-                 max_tokens: int = 1024) -> None:
-        from transformers import AutoTokenizer
-
+    def __init__(
+        self, name: str, directory: Path, supported_index: int | None = None, max_tokens: int = 1024
+    ) -> None:
         import onnxruntime as ort
+        from transformers import AutoTokenizer
 
         self.name = name
         path = directory.resolve()
         self.tokenizer = AutoTokenizer.from_pretrained(str(path))
         options = ort.SessionOptions()
         options.intra_op_num_threads = int(os.environ.get("OMP_NUM_THREADS", "2"))
-        self.session = ort.InferenceSession(str(path / "model.onnx"), options,
-                                            providers=["CPUExecutionProvider"])
-        self.supported_index = (
-            supported_class(path) if supported_index is None else supported_index
+        self.session = ort.InferenceSession(
+            str(path / "model.onnx"), options, providers=["CPUExecutionProvider"]
         )
+        self.supported_index = supported_class(path) if supported_index is None else supported_index
         self.max_tokens = max_tokens
 
     def score(self, claims: list[str], evidence: list[str]) -> np.ndarray:
-        enc = self.tokenizer(evidence, claims, return_tensors="np", padding=True,
-                             truncation="only_first", max_length=self.max_tokens)
-        feeds = {i.name: enc[i.name].astype(np.int64) for i in self.session.get_inputs()
-                 if i.name in enc}
+        enc = self.tokenizer(
+            evidence,
+            claims,
+            return_tensors="np",
+            padding=True,
+            truncation="only_first",
+            max_length=self.max_tokens,
+        )
+        feeds = {i.name: enc[i.name].astype(np.int64) for i in self.session.get_inputs() if i.name in enc}
         logits = self.session.run(None, feeds)[0]
         if logits.shape[-1] == 1:
             return np.asarray(1 / (1 + np.exp(-logits[:, 0])), dtype=np.float32)
@@ -185,8 +212,9 @@ class OllamaJudge:
         "Does the evidence support the claim? Answer with one word, yes or no."
     )
 
-    def __init__(self, model: str = "qwen2.5:7b", host: str = "http://127.0.0.1:11434",
-                 timeout: float = 120.0) -> None:
+    def __init__(
+        self, model: str = "qwen2.5:7b", host: str = "http://127.0.0.1:11434", timeout: float = 120.0
+    ) -> None:
         self.model, self.host, self.timeout = model, host, timeout
 
     def score(self, claims: list[str], evidence: list[str]) -> np.ndarray:

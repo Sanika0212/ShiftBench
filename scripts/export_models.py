@@ -124,8 +124,7 @@ def torch_embedding_scores(model_id: str) -> np.ndarray:
     model = AutoModel.from_pretrained(model_id).eval()
 
     def embed(texts: list[str]) -> np.ndarray:
-        enc = tok(texts, padding=True, truncation=True, max_length=MAX_TOKENS,
-                  return_tensors="pt")
+        enc = tok(texts, padding=True, truncation=True, max_length=MAX_TOKENS, return_tensors="pt")
         with torch.inference_mode():
             hidden = model(**enc).last_hidden_state
         mask = enc["attention_mask"][..., None].float()
@@ -216,8 +215,9 @@ def export_embedding(out: Path, model_id: str = EMBEDDING) -> dict[str, object]:
     return finish("embedding", model_id, directory, torch_embedding_scores(model_id), started)
 
 
-def finish(name: str, model_id: str, directory: Path, reference: np.ndarray,
-           started: float, precision: str = "fp32") -> dict[str, object]:
+def finish(
+    name: str, model_id: str, directory: Path, reference: np.ndarray, started: float, precision: str = "fp32"
+) -> dict[str, object]:
     """Write meta.json, then measure the export against PyTorch and write it again."""
     meta: dict[str, object] = {
         "name": name,
@@ -239,12 +239,19 @@ def finish(name: str, model_id: str, directory: Path, reference: np.ndarray,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, default=Path("models"))
-    ap.add_argument("--only", action="append", choices=["embedding", "nli", "minicheck"],
-                    default=None)
-    ap.add_argument("--tolerance", type=float, default=1e-4,
-                    help="fail if a full precision export differs from PyTorch by more than this")
-    ap.add_argument("--int8-tolerance", type=float, default=0.02,
-                    help="fail if quantization moves a score by more than this")
+    ap.add_argument("--only", action="append", choices=["embedding", "nli", "minicheck"], default=None)
+    ap.add_argument(
+        "--tolerance",
+        type=float,
+        default=1e-4,
+        help="fail if a full precision export differs from PyTorch by more than this",
+    )
+    ap.add_argument(
+        "--int8-tolerance",
+        type=float,
+        default=0.02,
+        help="fail if quantization moves a score by more than this",
+    )
     args = ap.parse_args()
 
     wanted = args.only or ["embedding", "nli", "minicheck"]
@@ -257,8 +264,10 @@ def main() -> None:
         else:
             report[name] = export_cross_encoder(name, CROSS_ENCODERS[name], args.out)
         diff = report[name]["max_abs_diff_vs_torch"]
-        print(f"  {name}: {report[name]['bytes'] / 1e6:.0f} MB, "
-              f"max difference from PyTorch {diff:.2e}", flush=True)
+        print(
+            f"  {name}: {report[name]['bytes'] / 1e6:.0f} MB, max difference from PyTorch {diff:.2e}",
+            flush=True,
+        )
 
     (args.out / "export-report.json").write_text(json.dumps(report, indent=2) + "\n")
     # Full precision must match PyTorch almost exactly; int8 is allowed to move, but only

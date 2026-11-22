@@ -14,9 +14,7 @@ def domain(name: str, n: int = 800, shift: float = 0.0, seed: int = 0) -> pd.Dat
     """A domain where unsupported claims score lower, by a margin ``shift`` erodes."""
     rng = RNG(seed)
     unsupported = rng.random(n) < 0.4
-    support = np.where(
-        unsupported, rng.normal(0.3 + shift, 0.15, n), rng.normal(0.7, 0.15, n)
-    ).clip(0, 1)
+    support = np.where(unsupported, rng.normal(0.3 + shift, 0.15, n), rng.normal(0.7, 0.15, n)).clip(0, 1)
     return pd.DataFrame(
         {
             "claim_id": [f"{name}-{i}" for i in range(n)],
@@ -45,15 +43,13 @@ def test_every_method_is_measured_for_a_pair() -> None:
 
 def test_the_shipped_threshold_loses_recall_under_shift_and_the_oracle_does_not() -> None:
     """The whole benchmark in one assertion."""
-    rows = {r.method: r for r in
-            evaluate_pair(domain("a", seed=0), domain("b", shift=0.3, seed=1), "fake")}
+    rows = {r.method: r for r in evaluate_pair(domain("a", seed=0), domain("b", shift=0.3, seed=1), "fake")}
     assert rows["split"].achieved < rows["split"].promised - 0.02
     assert rows["oracle"].achieved >= rows["oracle"].promised - 0.03
 
 
 def test_weighting_recovers_some_of_the_loss_without_target_labels() -> None:
-    rows = {r.method: r for r in
-            evaluate_pair(domain("a", seed=0), domain("b", shift=0.25, seed=1), "fake")}
+    rows = {r.method: r for r in evaluate_pair(domain("a", seed=0), domain("b", shift=0.25, seed=1), "fake")}
     assert rows["weighted"].achieved > rows["split"].achieved
 
 
@@ -61,11 +57,13 @@ def test_the_matrix_covers_every_ordered_pair_including_each_domain_on_itself() 
     scored = pd.concat([domain("a", seed=0), domain("b", shift=0.25, seed=1)], ignore_index=True)
     pairs = matrix(scored)
     assert set(zip(pairs["source"], pairs["target"], strict=True)) == {
-        ("a", "a"), ("a", "b"), ("b", "a"), ("b", "b")
+        ("a", "a"),
+        ("a", "b"),
+        ("b", "a"),
+        ("b", "b"),
     }
     # A domain on itself is measured on a held-out half, so it is still honest.
-    on_itself = pairs[(pairs["source"] == "a") & (pairs["target"] == "a") &
-                      (pairs["method"] == "split")]
+    on_itself = pairs[(pairs["source"] == "a") & (pairs["target"] == "a") & (pairs["method"] == "split")]
     assert float(on_itself["achieved"].iloc[0]) > 0.80
 
 
@@ -80,12 +78,23 @@ def test_the_leaderboard_breaks_a_tie_on_cost_not_on_over_flagging() -> None:
     """
     pairs = pd.DataFrame(
         [
-            {"detector": d, "source": "x", "target": "y", "method": "split",
-             "threshold": 0.5, "promised": 0.90, "achieved": achieved,
-             "achieved_low": achieved - 0.01, "achieved_high": achieved + 0.01,
-             "false_alarms": alarms, "gap": achieved - 0.90, "n_source": 400,
-             "n_target": 400, "weight_spread": float("nan"),
-             "domain_separability": float("nan")}
+            {
+                "detector": d,
+                "source": "x",
+                "target": "y",
+                "method": "split",
+                "threshold": 0.5,
+                "promised": 0.90,
+                "achieved": achieved,
+                "achieved_low": achieved - 0.01,
+                "achieved_high": achieved + 0.01,
+                "false_alarms": alarms,
+                "gap": achieved - 0.90,
+                "n_source": 400,
+                "n_target": 400,
+                "weight_spread": float("nan"),
+                "domain_separability": float("nan"),
+            }
             for d, achieved, alarms in (
                 ("floods-it", 1.00, 0.80),  # keeps the promise by flagging almost everything
                 ("precise", 0.91, 0.12),  # keeps it and stays quiet
@@ -94,7 +103,7 @@ def test_the_leaderboard_breaks_a_tie_on_cost_not_on_over_flagging() -> None:
     )
     board = leaderboard(pairs, pd.DataFrame(columns=["detector", "labels", "within_tolerance"]))
     assert list(board["promise_kept"]) == [1.0, 1.0]  # the tie is real
-    assert list(board["detector"])[0] == "precise"
+    assert next(iter(board["detector"])) == "precise"
 
 
 def test_more_labels_buy_the_promise_back() -> None:
@@ -149,20 +158,17 @@ def test_a_drift_statistic_cannot_tell_which_way_the_shift_hurts() -> None:
     out close together while their losses have opposite signs. This is the limitation that
     stops a high reading from being read as "you are under-covering".
     """
-    scored = pd.concat(
-        [domain("easy", seed=0), domain("hard", shift=0.4, seed=11)], ignore_index=True
-    )
+    scored = pd.concat([domain("easy", seed=0), domain("hard", shift=0.4, seed=11)], ignore_index=True)
     drifts = drift(scored).set_index(["source", "target"])
     forward = float(drifts.loc[("easy", "hard"), "psi"])
     backward = float(drifts.loc[("hard", "easy"), "psi"])
-    assert forward > 0.1 and backward > 0.1
+    assert forward > 0.1
+    assert backward > 0.1
     assert abs(forward - backward) < max(forward, backward)
 
     split = matrix(scored)
     split = split[(split["method"] == "split") & (split["source"] != split["target"])]
-    losses = {
-        (r.source, r.target): r.promised - r.achieved for r in split.itertuples()
-    }
+    losses = {(r.source, r.target): r.promised - r.achieved for r in split.itertuples()}
     assert losses[("easy", "hard")] > 0.05  # the promise breaks
     assert losses[("hard", "easy")] < 0.0  # the reverse over-recalls
 
@@ -175,5 +181,5 @@ def test_the_leaderboard_ranks_the_honest_detector_first() -> None:
     scored = pd.concat([honest, honest_target, fragile, fragile_target], ignore_index=True)
     pairs = matrix(scored)
     board = leaderboard(pairs, budgets(scored))
-    assert list(board["detector"])[0] == "honest"
+    assert next(iter(board["detector"])) == "honest"
     assert board.set_index("detector").loc["fragile", "worst_gap"] < 0

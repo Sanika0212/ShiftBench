@@ -54,10 +54,18 @@ def chunks(frame: pd.DataFrame, size: int) -> Iterator[pd.DataFrame]:
         yield frame.iloc[start : start + size]
 
 
-def score_domain(claims: pd.DataFrame, detector_name: str, detector: Detector | None = None,
-                 chunk: int = 32, duty: float = 0.4, root: Path = SCORES,
-                 models: Path | None = None, progress: bool = True,
-                 min_available: float = MIN_AVAILABLE, background: bool = False) -> pd.DataFrame:
+def score_domain(
+    claims: pd.DataFrame,
+    detector_name: str,
+    detector: Detector | None = None,
+    chunk: int = 32,
+    duty: float = 0.4,
+    root: Path = SCORES,
+    models: Path | None = None,
+    progress: bool = True,
+    min_available: float = MIN_AVAILABLE,
+    background: bool = False,
+) -> pd.DataFrame:
     """Score one domain with one detector, resuming from whatever is already cached.
 
     ``min_available`` is the share of memory the kernel must still consider available
@@ -102,8 +110,7 @@ def score_domain(claims: pd.DataFrame, detector_name: str, detector: Detector | 
     return out
 
 
-def import_scores(rows: list[dict[str, Any]], domain: str, detector_name: str,
-                  root: Path = SCORES) -> int:
+def import_scores(rows: list[dict[str, Any]], domain: str, detector_name: str, root: Path = SCORES) -> int:
     """Bring per-item scores computed elsewhere into the cache, keyed the same way."""
     path = cache_path(domain, detector_name, root)
     path.parent.mkdir(parents=True, exist_ok=True)

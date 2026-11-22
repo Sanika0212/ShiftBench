@@ -93,8 +93,7 @@ def render(results: dict[str, pd.DataFrame], promised: float = 0.90) -> str:
                 cells = ""
                 for target in domains:
                     hit = group[(group["source"] == source) & (group["target"] == target)]
-                    cells += _cell(float(hit["achieved"].iloc[0]) if len(hit) else float("nan"),
-                                   promised)
+                    cells += _cell(float(hit["achieved"].iloc[0]) if len(hit) else float("nan"), promised)
                 body += f"<tr><th>{source}</th>{cells}</tr>"
             matrices += (
                 f"<h2>{detector}</h2>"

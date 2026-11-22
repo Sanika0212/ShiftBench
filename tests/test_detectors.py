@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from shiftbench.detectors import WordOverlap, content_words
@@ -31,8 +30,9 @@ def test_content_words_drops_stopwords_and_short_tokens() -> None:
 
 
 def test_word_overlap_refuses_mismatched_lengths() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="shorter than"):
         WordOverlap().score(["one", "two"], ["only one passage"])
+
 
 def test_the_supported_class_comes_from_the_model_config(tmp_path: Path) -> None:
     """A fixed -1 read neutral as support on the NLI model this benchmark uses.

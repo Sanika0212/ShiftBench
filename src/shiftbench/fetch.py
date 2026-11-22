@@ -44,7 +44,8 @@ def _hub(repo: str, filename: str, root: Path = RAW, revision: str = "main") -> 
 
 def _read(path: Path) -> list[dict[str, Any]]:
     if path.suffix == ".parquet":
-        return [dict(r) for r in pd.read_parquet(path).to_dict("records")]
+        records = pd.read_parquet(path).to_dict("records")
+        return [{str(k): v for k, v in r.items()} for r in records]
     text = path.read_text()
     if path.suffix == ".jsonl":
         return [json.loads(line) for line in text.splitlines() if line.strip()]
@@ -71,28 +72,25 @@ def scientific(root: Path = RAW) -> pd.DataFrame:
     """
     domain = DOMAINS["scientific"]
     claims_train, claims_validation, corpus_file = domain.files
-    corpus = pd.read_parquet(_hub(domain.repo, corpus_file, root, domain.revision))
-    docs = {
-        int(r.doc_id): " ".join([str(r.title), *[str(x) for x in r.abstract]])
-        for r in corpus.itertuples(index=False)
-    }
+    corpus = _read(_hub(domain.repo, corpus_file, root, domain.revision))
+    docs = {int(r["doc_id"]): " ".join([str(r["title"]), *[str(x) for x in r["abstract"]]]) for r in corpus}
     rows = []
     for split, name in (("train", claims_train), ("validation", claims_validation)):
-        claims = pd.read_parquet(_hub(domain.repo, name, root, domain.revision))
-        for r in claims.itertuples(index=False):
+        claims = _read(_hub(domain.repo, name, root, domain.revision))
+        for r in claims:
             labels: dict[int, str] = {}
-            for ev in r.evidences if r.evidences is not None else []:
+            for ev in r["evidences"] if r["evidences"] is not None else []:
                 labels.setdefault(int(ev["doc_id"]), str(ev["label"]).upper())
-            for doc_id in r.cited_doc_ids:
+            for doc_id in r["cited_doc_ids"]:
                 passage = docs.get(int(doc_id))
                 if not passage:
                     continue
                 label = labels.get(int(doc_id), "NOINFO")
                 rows.append(
                     {
-                        "claim_id": f"scifact-{split}-{r.id}-{doc_id}",
+                        "claim_id": f"scifact-{split}-{r['id']}-{doc_id}",
                         "domain": "scientific",
-                        "claim": str(r.claim),
+                        "claim": str(r["claim"]),
                         "evidence": passage,
                         "supported": label == "SUPPORT",
                         "group_id": f"doc-{doc_id}",
@@ -231,8 +229,9 @@ def balanced_sample(claims: pd.DataFrame, limit: int, seed: int = 0) -> pd.DataF
     return sampled.head(limit)
 
 
-def build(domain: str, limit: int = 0, root: Path = RAW, out: Path = Path("data"),
-          seed: int = 0) -> pd.DataFrame:
+def build(
+    domain: str, limit: int = 0, root: Path = RAW, out: Path = Path("data"), seed: int = 0
+) -> pd.DataFrame:
     """Fetch one domain, unify it, cap it and write ``data/<domain>.parquet``."""
     claims = LOADERS[domain](root)
     claims = balanced_sample(claims, limit, seed)

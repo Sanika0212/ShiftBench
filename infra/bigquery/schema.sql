@@ -11,8 +11,7 @@
 -- Nothing here has been applied. There is no GCP project behind this repository, so these
 -- statements are validated by `make sql-check` (sqlfluff) and nothing else.
 
-CREATE SCHEMA IF NOT EXISTS shiftbench
-  OPTIONS (location = 'US');
+CREATE SCHEMA IF NOT EXISTS shiftbench OPTIONS (location = 'US');
 
 -- One row per detector, source domain, target domain and threshold method: the promise
 -- that was made on the source and what the target actually delivered.

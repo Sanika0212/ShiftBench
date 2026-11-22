@@ -17,7 +17,7 @@ test: ## the test suite, excluding the ones that need exported models
 	uv run pytest -q --cov=shiftbench --cov-report=term --cov-fail-under=80
 
 sql-check: ## the BigQuery DDL parses
-	uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql --dialect bigquery
+	uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql
 
 check: lint types test sql-check ## everything CI runs
 

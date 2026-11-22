@@ -12,10 +12,24 @@ from shiftbench.site import load_results, render
 def board() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"detector": "minicheck", "pairs": 12, "mean_gap": -0.01, "worst_gap": -0.04,
-             "promise_kept": 0.75, "mean_false_alarms": 0.21, "labels_to_recover": 100.0},
-            {"detector": "word-overlap", "pairs": 12, "mean_gap": -0.18, "worst_gap": -0.41,
-             "promise_kept": 0.08, "mean_false_alarms": 0.55, "labels_to_recover": float("nan")},
+            {
+                "detector": "minicheck",
+                "pairs": 12,
+                "mean_gap": -0.01,
+                "worst_gap": -0.04,
+                "promise_kept": 0.75,
+                "mean_false_alarms": 0.21,
+                "labels_to_recover": 100.0,
+            },
+            {
+                "detector": "word-overlap",
+                "pairs": 12,
+                "mean_gap": -0.18,
+                "worst_gap": -0.41,
+                "promise_kept": 0.08,
+                "mean_false_alarms": 0.55,
+                "labels_to_recover": float("nan"),
+            },
         ]
     )
 
@@ -24,8 +38,15 @@ def pairs() -> pd.DataFrame:
     rows = []
     for source in ("legal", "medical"):
         for target in ("legal", "medical"):
-            rows.append({"detector": "minicheck", "source": source, "target": target,
-                         "method": "split", "achieved": 0.91 if source == target else 0.72})
+            rows.append(
+                {
+                    "detector": "minicheck",
+                    "source": source,
+                    "target": target,
+                    "method": "split",
+                    "achieved": 0.91 if source == target else 0.72,
+                }
+            )
     return pd.DataFrame(rows)
 
 

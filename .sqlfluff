@@ -1,0 +1,17 @@
+# sqlfluff settings for infra/bigquery/schema.sql, checked by "make sql-check".
+#
+# The DDL is indented two spaces, like the rest of this repository, and wraps at the same
+# 110 columns ruff uses, so the comments that explain a column fit on its line.
+#
+# RF04 is off deliberately. It objects to the columns named "source" and "target", which are
+# the two things this benchmark is about: a threshold is calibrated on a source domain and
+# used on a target one. They are unreserved keywords in BigQuery, not reserved ones, so they
+# parse and query without quoting. Renaming them would also break the correspondence with the
+# DataFrame columns the analysis writes, which is worth more than silencing a style rule.
+[sqlfluff]
+dialect = bigquery
+max_line_length = 110
+exclude_rules = RF04
+
+[sqlfluff:indentation]
+tab_space_size = 2

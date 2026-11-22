@@ -25,16 +25,15 @@ import numpy as np
 import pandas as pd
 
 from shiftbench.calibration import (
-    achieved_recall,
+    Reweighting,
     apply_mondrian,
     bootstrap_recall,
-    Reweighting,
-    reweight,
     false_alarm_rate,
     labels_to_recover,
     mmd,
     mondrian_thresholds,
     psi,
+    reweight,
     threshold_for_recall,
     weighted_threshold,
 )
@@ -73,8 +72,9 @@ def _split(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return frame["support"].to_numpy(dtype=float), frame["unsupported"].to_numpy(dtype=bool)
 
 
-def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
-                  promised: float = TARGET, seed: int = 0) -> list[Pair]:
+def evaluate_pair(
+    source: pd.DataFrame, target: pd.DataFrame, detector: str, promised: float = TARGET, seed: int = 0
+) -> list[Pair]:
     """Every threshold method, calibrated on ``source`` and measured on ``target``."""
     s_scores, s_unsupported = _split(source)
     t_scores, t_unsupported = _split(target)
@@ -98,9 +98,7 @@ def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
                 n_source=len(source),
                 n_target=len(target),
                 weight_spread=float("nan") if reweighting is None else reweighting.spread,
-                domain_separability=(
-                    float("nan") if reweighting is None else reweighting.separability
-                ),
+                domain_separability=(float("nan") if reweighting is None else reweighting.separability),
             )
         )
 
@@ -114,9 +112,7 @@ def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
     add("oracle", threshold_for_recall(t_scores, t_unsupported, promised))
 
     if "group_id" in source and source["group_id"].notna().any():
-        thresholds = mondrian_thresholds(
-            s_scores, s_unsupported, source["group_id"].to_numpy(), promised
-        )
+        thresholds = mondrian_thresholds(s_scores, s_unsupported, source["group_id"].to_numpy(), promised)
         per_claim = apply_mondrian(thresholds, target["group_id"].to_numpy())
         recall = float(np.mean(t_scores[t_unsupported] <= per_claim[t_unsupported]))
         rows.append(
@@ -182,13 +178,16 @@ def matrix(scored: pd.DataFrame, promised: float = TARGET, seed: int = 0) -> pd.
                 else:
                     fit = whole
                     measure = per_detector[per_detector["domain"] == target]
-                rows += [p.as_row() for p in
-                         evaluate_pair(fit, measure, str(detector), promised=promised, seed=seed)]
+                rows += [
+                    p.as_row()
+                    for p in evaluate_pair(fit, measure, str(detector), promised=promised, seed=seed)
+                ]
     return pd.DataFrame(rows)
 
 
-def budgets(scored: pd.DataFrame, promised: float = TARGET, tolerance: float = TOLERANCE,
-            seed: int = 0) -> pd.DataFrame:
+def budgets(
+    scored: pd.DataFrame, promised: float = TARGET, tolerance: float = TOLERANCE, seed: int = 0
+) -> pd.DataFrame:
     """How many target labels bring the promise back, per detector and target domain."""
     rows = []
     for (detector, domain), group in scored.groupby(["detector", "domain"]):
@@ -271,8 +270,9 @@ def drift_predicts_loss(pairs: pd.DataFrame, drifts: pd.DataFrame) -> dict[str, 
     return out
 
 
-def leaderboard(pairs: pd.DataFrame, budget_curves: pd.DataFrame,
-                tolerance: float = TOLERANCE) -> pd.DataFrame:
+def leaderboard(
+    pairs: pd.DataFrame, budget_curves: pd.DataFrame, tolerance: float = TOLERANCE
+) -> pd.DataFrame:
     """Rank detectors by honesty under shift, not by how well they separate in one domain."""
     shifted = pairs[(pairs["method"] == "split") & (pairs["source"] != pairs["target"])]
     rows = []
@@ -299,6 +299,6 @@ def leaderboard(pairs: pd.DataFrame, budget_curves: pd.DataFrame,
     # ranks the detector that over-recalls the most, and over-recalling is not honesty: it
     # is flagging more than asked and charging the reader for it. A gap is good when it is
     # near zero, not when it is large, so it cannot be a one-directional sort key.
-    return board.sort_values(
-        ["promise_kept", "mean_false_alarms"], ascending=[False, True]
-    ).reset_index(drop=True)
+    return board.sort_values(["promise_kept", "mean_false_alarms"], ascending=[False, True]).reset_index(
+        drop=True
+    )

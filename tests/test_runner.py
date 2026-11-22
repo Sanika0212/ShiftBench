@@ -73,8 +73,7 @@ def test_scoring_writes_a_cache_and_resumes_from_it(tmp_path: Path) -> None:
 
 def test_scoring_only_asks_for_what_is_missing(tmp_path: Path) -> None:
     frame = claims(8)
-    score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path,
-                 min_available=0.0)
+    score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     detector = Counting()
     score_domain(frame, "counting", detector, chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     assert len(detector.seen) == 4  # the four that were not in the cache
@@ -88,11 +87,12 @@ def test_imported_scores_land_in_the_same_cache(tmp_path: Path) -> None:
     assert cached == {"legal-0": 0.2, "legal-1": 0.8}
 
 
-def test_an_incomplete_cache_is_skipped_not_analysed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_incomplete_cache_is_skipped_not_analysed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Half a domain's scores would silently bias every number downstream."""
     frame = claims(8)
-    score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path,
-                 min_available=0.0)
+    score_domain(frame.head(4), "counting", Counting(), chunk=4, duty=1.0, root=tmp_path, min_available=0.0)
     with pytest.raises(RuntimeError, match="no detector has a complete set"):
         scored_frame(frame, ["counting"], root=tmp_path)
     assert "not scored yet" in capsys.readouterr().out
