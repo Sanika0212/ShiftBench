@@ -100,10 +100,15 @@ The cross-encoders run int8 quantized, and that is a decision the measurement fo
 than a performance preference. `scripts/import_evidence_gate.py` reuses per-item scores a
 sibling project already computed for the scientific and medical domains, and those are int8.
 Precision has to be uniform across domains or it confounds exactly what is being measured:
-int8 moves MiniCheck's probabilities by up to 0.0104 and the NLI model's by up to 0.0063,
-against a tolerance of 0.02 on recall. A threshold fitted on int8 scores and used on full
-precision ones would shift for a reason that has nothing to do with domain. The full
-precision export is kept beside the int8 one so the cost of quantizing stays measurable.
+a threshold fitted on int8 scores and used on full precision ones would shift for a reason
+that has nothing to do with domain. The full precision export is kept beside the int8 one
+so the cost of quantizing stays measurable, and `meta.json` in each export directory
+carries the measured difference from PyTorch.
+
+Quantization moved MiniCheck's probabilities by up to 0.0104 against that 0.02 tolerance.
+An equivalent figure for the NLI model is not quoted yet: the one measured earlier, 0.0063,
+was taken on the model's third output, which is neutral rather than entailment, so it does
+not describe the number the detector reads. It is re-measured on the next export.
 
 ## Running it
 

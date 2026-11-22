@@ -15,16 +15,22 @@ Three detectors are exported. The names match ``shiftbench.detectors.build``:
 | name | source | what it produces |
 | --- | --- | --- |
 | embedding | sentence-transformers/all-MiniLM-L6-v2 | token embeddings, mean pooled here |
-| nli | cross-encoder/nli-deberta-v3-base | entailment probability |
+| nli | cross-encoder/nli-deberta-v3-base | entailment probability, class 1 of 3 |
 | minicheck | lytang/MiniCheck-RoBERTa-Large | supported probability |
 
 The cross-encoders are quantized to int8 and the detectors load the int8 directory, because
 that is what ``scripts/import_evidence_gate.py`` brings in for the scientific and medical
 domains. Precision has to be uniform across domains or it confounds the thing being
-measured: int8 moves MiniCheck's probabilities by up to 0.0104 and the NLI model's by up to
-0.0063, against a tolerance of 0.02 on recall, so a threshold fitted on int8 scores and
-applied to full precision ones would shift for a reason that has nothing to do with domain.
-The full precision export is kept beside it so the quantization cost stays measurable.
+measured: a threshold fitted on int8 scores and applied to full precision ones would shift
+for a reason that has nothing to do with domain. The full precision export is kept beside
+it so the quantization cost stays measurable.
+
+The quantization cost measured before this script read the supported class from the model
+config was 0.0104 for MiniCheck and 0.0063 for the NLI model, against a tolerance of 0.02
+on recall. The MiniCheck figure still stands, since its supported class is output 1 either
+way. The NLI figure was taken on output 2, which is neutral, not entailment, so it does
+not describe the number the detector reads and is reported here only as the reason the
+export is checked at all. Both are rewritten by ``meta.json`` on the next export.
 """
 
 from __future__ import annotations
@@ -132,6 +138,16 @@ def torch_embedding_scores(model_id: str) -> np.ndarray:
     return np.asarray((a * b).sum(axis=1))
 
 
+def _supported_class(directory: Path) -> int:
+    """The index the detector will read, so the parity check measures the same number."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from shiftbench.detectors import supported_class
+
+    return supported_class(directory)
+
+
 def onnx_scores(name: str, directory: Path) -> np.ndarray:
     """Score the fixed pairs with the exported model, through the benchmark's own loaders."""
     import sys
@@ -143,7 +159,8 @@ def onnx_scores(name: str, directory: Path) -> np.ndarray:
     evidence = [evidence for evidence, _ in PAIRS]
     if name == "embedding":
         return OnnxEmbedding(directory).score(claims, evidence)
-    return OnnxPairClassifier(name, directory, supported_index=-1).score(claims, evidence)
+    # No supported_index: the detector reads it from config.json, and so must this.
+    return OnnxPairClassifier(name, directory).score(claims, evidence)
 
 
 def export_cross_encoder(name: str, model_id: str, out: Path) -> dict[str, object]:
@@ -174,8 +191,12 @@ def export_cross_encoder(name: str, model_id: str, out: Path) -> dict[str, objec
     )
     for f in ("tokenizer.json", "config.json"):
         shutil.copy(fp32 / f, int8 / f)
-    # Entailment is the last class in the usual ordering, which is what the detector reads.
-    reference = torch_pair_probs(model_id)[:, -1]
+    # The class the detector reads, taken from the model's own config by the same function
+    # the detector uses. This was [:, -1] on both sides of the comparison, so parity was
+    # self-consistent and measured the wrong quantity: DeBERTa-v3's last class is neutral,
+    # not entailment. An export can be faithful on a number nothing ever reads.
+    supported = _supported_class(fp32)
+    reference = torch_pair_probs(model_id)[:, supported]
     report = finish(name, model_id, int8, reference, started, precision="int8")
     report["fp32"] = finish(f"{name}-fp32", model_id, fp32, reference, started, precision="fp32")
     return report
