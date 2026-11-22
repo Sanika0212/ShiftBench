@@ -28,7 +28,8 @@ from shiftbench.calibration import (
     achieved_recall,
     apply_mondrian,
     bootstrap_recall,
-    density_ratio,
+    Reweighting,
+    reweight,
     false_alarm_rate,
     labels_to_recover,
     mmd,
@@ -58,6 +59,11 @@ class Pair:
     gap: float
     n_source: int
     n_target: int
+    # Only the weighted method fills these in; nan elsewhere. A weighted row whose spread is
+    # near zero did not reweight anything, and its achieved recall is the split one wearing
+    # another name. Reported rather than left to be inferred from the two being equal.
+    weight_spread: float = float("nan")
+    domain_separability: float = float("nan")
 
     def as_row(self) -> dict[str, Any]:
         return asdict(self)
@@ -74,7 +80,7 @@ def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
     t_scores, t_unsupported = _split(target)
     rows: list[Pair] = []
 
-    def add(method: str, threshold: float) -> None:
+    def add(method: str, threshold: float, reweighting: Reweighting | None = None) -> None:
         interval = bootstrap_recall(t_scores, t_unsupported, threshold, seed=seed)
         rows.append(
             Pair(
@@ -91,12 +97,20 @@ def evaluate_pair(source: pd.DataFrame, target: pd.DataFrame, detector: str,
                 gap=interval.point - promised,
                 n_source=len(source),
                 n_target=len(target),
+                weight_spread=float("nan") if reweighting is None else reweighting.spread,
+                domain_separability=(
+                    float("nan") if reweighting is None else reweighting.separability
+                ),
             )
         )
 
     add("split", threshold_for_recall(s_scores, s_unsupported, promised))
-    weights = density_ratio(features(source), features(target), seed=seed)
-    add("weighted", weighted_threshold(s_scores, s_unsupported, weights, promised))
+    reweighting = reweight(features(source), features(target), seed=seed)
+    add(
+        "weighted",
+        weighted_threshold(s_scores, s_unsupported, reweighting.weights, promised),
+        reweighting,
+    )
     add("oracle", threshold_for_recall(t_scores, t_unsupported, promised))
 
     if "group_id" in source and source["group_id"].notna().any():

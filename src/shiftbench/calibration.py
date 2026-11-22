@@ -105,24 +105,67 @@ def bootstrap_recall(scores: np.ndarray, unsupported: np.ndarray, threshold: flo
     )
 
 
-def density_ratio(source_features: np.ndarray, target_features: np.ndarray,
-                  seed: int = 0) -> np.ndarray:
-    """How much each source claim looks like a target claim.
+@dataclass(frozen=True)
+class Reweighting:
+    """Importance weights for the source claims, with what they are worth.
+
+    ``separability`` is the domain classifier's AUC over both samples. At 1.0 the two
+    domains do not overlap in these features, and an importance weight is then an
+    extrapolation rather than an estimate: nothing in the source resembles the target, so
+    there is no reweighting of the source that turns it into the target.
+
+    ``spread`` is the standard deviation of the weights divided by their mean. Near zero the
+    weights are all but equal and the weighted threshold is the unweighted one, whatever the
+    classifier reports. This is the diagnostic that matters and it is not the effective
+    sample size, which moves the wrong way: measured on separable domains, ESS rose to 94%
+    of the sample while the threshold stopped moving, because near-equal weights look
+    healthy by that measure and do nothing by this one.
+    """
+
+    weights: np.ndarray
+    separability: float
+    spread: float
+
+    @property
+    def degenerate(self) -> bool:
+        """Whether the reweighting can be expected to do anything at all."""
+        return self.spread < 0.05 or self.separability >= 0.999
+
+
+def reweight(source_features: np.ndarray, target_features: np.ndarray,
+             seed: int = 0) -> Reweighting:
+    """How much each source claim looks like a target claim, and whether that means anything.
 
     A logistic classifier separates source from target; the ratio ``p / (1 - p)`` of its
     probability is the importance weight under covariate shift. Weights are clipped, because
     one claim with a huge weight is a threshold chosen by one claim.
     """
     from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
     from sklearn.preprocessing import StandardScaler
 
-    x = np.vstack([np.asarray(source_features), np.asarray(target_features)])
+    source_features = np.asarray(source_features)
+    target_features = np.asarray(target_features)
+    x = np.vstack([source_features, target_features])
     y = np.r_[np.zeros(len(source_features)), np.ones(len(target_features))]
     scaled = StandardScaler().fit_transform(x)
     model = LogisticRegression(max_iter=1000, random_state=seed).fit(scaled, y)
-    p = model.predict_proba(scaled[: len(source_features)])[:, 1]
+    both = model.predict_proba(scaled)[:, 1]
+    p = both[: len(source_features)]
     weights = p / np.clip(1 - p, 1e-6, None)
-    return np.asarray(np.clip(weights, 0.0, np.quantile(weights, 0.99)), dtype=float)
+    weights = np.asarray(np.clip(weights, 0.0, np.quantile(weights, 0.99)), dtype=float)
+    mean = float(weights.mean())
+    return Reweighting(
+        weights=weights,
+        separability=float(roc_auc_score(y, both)) if len(np.unique(y)) > 1 else float("nan"),
+        spread=float(weights.std() / mean) if mean > 0 else 0.0,
+    )
+
+
+def density_ratio(source_features: np.ndarray, target_features: np.ndarray,
+                  seed: int = 0) -> np.ndarray:
+    """The weights alone, for callers that do not need the diagnostics."""
+    return reweight(source_features, target_features, seed).weights
 
 
 def weighted_quantile(values: np.ndarray, weights: np.ndarray, level: float) -> float:

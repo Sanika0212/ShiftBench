@@ -21,7 +21,15 @@ in the domain they were tuned on.
 3. **Compare four thresholds**, because the repair matters as much as the damage.
    1. `split`, plain conformal on the source. What a team would ship.
    2. `weighted`, reweighting source claims towards the target with a density ratio. Needs no
-      target labels.
+      target labels, and has a ceiling that is worth stating in advance: importance
+      weighting needs the two domains to overlap, and a domain classifier on these features
+      separates them perfectly as soon as they differ much at all. When it does, every
+      source claim gets near enough the same weight and the weighted threshold is the plain
+      one. Measured while building this, on synthetic domains: the threshold moved 0.096
+      where the domains overlapped and 0.017 where they did not, which is the wrong way
+      round for a shift repair. So every weighted row carries the classifier's separability
+      and the spread of its weights, and a row whose spread is near zero is reported as
+      having done nothing rather than as a repair that did not help.
    3. `mondrian`, a separate threshold per group inside the source.
    4. `oracle`, fitted on the target's own labels. The ceiling nobody has.
 4. **Price the repair**: label k target claims, recalibrate on them, measure on the rest, over

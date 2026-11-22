@@ -29,7 +29,13 @@ CREATE TABLE IF NOT EXISTS shiftbench.pairs (
   false_alarms FLOAT64 NOT NULL,
   gap FLOAT64 NOT NULL,         -- achieved minus promised, so negative is a broken promise
   n_source INT64 NOT NULL,
-  n_target INT64 NOT NULL
+  n_target INT64 NOT NULL,
+  -- Set on the weighted method only, NULL elsewhere. weight_spread near zero means the
+  -- reweighting changed nothing and that row is the split threshold under another name;
+  -- domain_separability at 1.0 means the domains do not overlap, so the weights are an
+  -- extrapolation rather than an estimate.
+  weight_spread FLOAT64,
+  domain_separability FLOAT64
 )
 CLUSTER BY detector, source, target;
 

@@ -16,6 +16,7 @@ from shiftbench.calibration import (
     mmd,
     mondrian_thresholds,
     psi,
+    reweight,
     threshold_for_recall,
     weighted_quantile,
     weighted_threshold,
@@ -127,6 +128,31 @@ def test_weighting_moves_the_threshold_towards_the_target() -> None:
     plain_recall = achieved_recall(target_scores, target_unsupported, plain)
     weighted_recall = achieved_recall(target_scores, target_unsupported, weighted)
     assert weighted_recall > plain_recall
+
+
+def test_reweighting_reports_when_it_cannot_do_anything() -> None:
+    """Separable domains make importance weights an extrapolation, and the output says so.
+
+    The domain classifier saturates when the two domains do not overlap, so every source
+    claim gets almost the same weight and the weighted threshold becomes the unweighted one.
+    Measured while adding this: the threshold moved 0.096 between overlapping domains and
+    0.017 between very different ones, the wrong way round for a shift repair. Effective
+    sample size is no use as a warning here, rising from 66% to 94% of the sample as the
+    repair stopped working, because near-equal weights look healthy by that measure.
+    """
+    rng = np.random.default_rng(0)
+    overlapping = rng.normal(size=(400, 3))
+    nearby = rng.normal(0.3, 1.0, size=(400, 3))
+    far = np.column_stack([rng.normal(40, 1.0, 400), rng.normal(900, 5, 400), rng.normal(50, 1, 400)])
+
+    close = reweight(overlapping, nearby, seed=0)
+    apart = reweight(overlapping, far, seed=0)
+
+    assert close.separability < 0.95
+    assert apart.separability > 0.999
+    assert apart.spread < close.spread
+    assert apart.degenerate
+    assert not close.degenerate
 
 
 def test_mondrian_uses_a_group_threshold_where_the_group_is_big_enough() -> None:
