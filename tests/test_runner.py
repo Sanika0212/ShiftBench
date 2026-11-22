@@ -113,3 +113,21 @@ def test_features_are_the_score_and_two_lengths() -> None:
     assert f.shape == (5, 3)
     assert np.allclose(f[:, 0], frame["support"].to_numpy())
     assert np.allclose(f[:, 1], frame["claim"].str.len().to_numpy())
+
+
+def test_importing_the_same_id_twice_writes_it_once(tmp_path: Path) -> None:
+    """The rows being imported can repeat an id, not just collide with the cache.
+
+    SciFact cites one document twice for claim 1245, so Evidence Gate's 1259 cached scores
+    cover 1258 pairs. Checking only the existing cache wrote that pair twice.
+    """
+    rows = [
+        {"claim_id": "a", "support": 0.1},
+        {"claim_id": "a", "support": 0.9},
+        {"claim_id": "b", "support": 0.5},
+    ]
+    assert import_scores(rows, "scientific", "fake", root=tmp_path) == 2
+    cached = read_cache(cache_path("scientific", "fake", tmp_path))
+    assert cached == {"a": 0.1, "b": 0.5}
+    # A second pass adds nothing.
+    assert import_scores(rows, "scientific", "fake", root=tmp_path) == 0
