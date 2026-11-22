@@ -1,4 +1,4 @@
-.PHONY: help install lint types test sql-check check fetch score analyse serve
+.PHONY: help install lint types test sql-check check fetch score analyse serve readme readme-check
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-12s %s\n", $$1, $$2}'
@@ -18,6 +18,12 @@ test: ## the test suite, excluding the ones that need exported models
 
 sql-check: ## the BigQuery DDL parses
 	uv run --with sqlfluff sqlfluff lint infra/bigquery/schema.sql
+
+readme:             ## fill the README's results section from results/
+	uv run python scripts/render_readme.py
+
+readme-check:       ## fail when the README and results/ disagree
+	uv run python scripts/render_readme.py --check
 
 check: lint types test sql-check ## everything CI runs
 

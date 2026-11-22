@@ -105,10 +105,18 @@ that has nothing to do with domain. The full precision export is kept beside the
 so the cost of quantizing stays measurable, and `meta.json` in each export directory
 carries the measured difference from PyTorch.
 
-Quantization moved MiniCheck's probabilities by up to 0.0104 against that 0.02 tolerance.
-An equivalent figure for the NLI model is not quoted yet: the one measured earlier, 0.0063,
-was taken on the model's third output, which is neutral rather than entailment, so it does
-not describe the number the detector reads. It is re-measured on the next export.
+Measured by `scripts/export_models.py` on its own fixed pairs, on the output each detector
+actually reads:
+
+| export | full precision against PyTorch | int8 against PyTorch |
+| --- | --- | --- |
+| embedding | 1.19e-07 | not quantized |
+| nli | 7.28e-11 | 4.25e-03 |
+| minicheck | 4.17e-07 | 1.37e-02 |
+
+Both int8 figures sit under the 0.02 tolerance this benchmark reports recall against, and
+MiniCheck uses most of it. The full precision exports are faithful to PyTorch to seven
+digits or better, so the int8 column is the cost of quantizing and not of exporting.
 
 ## Running it
 
@@ -141,10 +149,66 @@ built on it never opens. Background scheduling is available and off by default: 
 pinned the work to the efficiency cores and cost about ten times the wall clock, which is
 more total heat for the same work.
 
+<!-- RESULTS:start -->
 ## Results
 
-Not yet measured. `make score` then `make analyse` produces `results/`, and the numbers go
-here when they exist rather than before.
+Every threshold promises 90% recall on unsupported claims, fitted on one domain and used on another. 5 domains give 20 ordered pairs, over 3,000 claims in all.
+
+| detector | promise kept | mean gap | worst gap | false alarms | labels to recover |
+| --- | --- | --- | --- | --- | --- |
+| word-overlap | 55% | -0.036 | -0.343 | 0.76 | 50 |
+
+"Promise kept" is the share of ordered pairs whose achieved recall came within 0.02 of what was promised. The gap is achieved minus promised, so it is good near zero and a large positive one means the detector flags more than it was asked to. That is why detectors keeping as many promises are ranked by what the promise cost in false alarms rather than by the gap.
+
+**word-overlap**, recall achieved when the threshold is fitted on the row's domain and used on the column's, against a promise of 90%. The diagonal is a held-out half of the same domain, so it is a measurement and not a tautology.
+
+| fitted on | financial | general | legal | medical | scientific |
+| --- | --- | --- | --- | --- | --- |
+| financial | 0.85 | 1.00 | 1.00 | 1.00 | 1.00 |
+| general | 0.66 | 0.93 | 0.96 | 0.95 | 0.94 |
+| legal | 0.64 | 0.88 | 0.99 | 0.92 | 0.93 |
+| medical | 0.56 | 0.84 | 0.87 | 0.95 | 0.89 |
+| scientific | 0.57 | 0.87 | 0.87 | 0.92 | 0.93 |
+
+### What the repairs are worth
+
+The same pairs under each way of choosing the threshold. `oracle` is fitted on the target's own labels and is the ceiling nobody has; `split` is what a team ships.
+
+| method | mean recall | within tolerance | mean false alarms |
+| --- | --- | --- | --- |
+| split | 0.864 | 55% | 0.76 |
+| weighted | 0.866 | 50% | 0.76 |
+| mondrian | 0.864 | 55% | 0.76 |
+| oracle | 0.941 | 100% | 0.84 |
+
+The weighted row comes with diagnostics, because there are two different reasons it could sit near the split row. The domain classifier separated the two domains perfectly on 10% of pairs, and the mean spread of its importance weights was 3.28.
+So the weights did vary, and the reweighting still moved mean recall by +0.003. That is a real negative result rather than a degenerate estimator: the density ratio had something to work with and reweighting the source towards the target did not recover the recall that the shift cost.
+
+### What it costs to get the promise back
+
+Label k claims from the new domain, refit the threshold on them, measure on the rest, over many draws. Averaged over domains and detectors, against a promise of 90%.
+
+| labels | mean recall | spread | share of draws within tolerance | false alarms |
+| --- | --- | --- | --- | --- |
+| 25 | 0.931 | 0.085 | 77% | 0.85 |
+| 50 | 0.942 | 0.054 | 86% | 0.86 |
+| 100 | 0.925 | 0.051 | 78% | 0.83 |
+| 200 | 0.926 | 0.041 | 80% | 0.83 |
+| 400 | 0.933 | 0.034 | 83% | 0.83 |
+
+The column that moves is the spread, from 0.085 at 25 labels to 0.034 at 400. Mean recall does not climb with the budget and is not supposed to: refitting on the target's own claims puts the threshold in the right place at every budget, and what more labels buy is a threshold that lands there reliably rather than one that happens to. A small sample gives a noisy threshold, and a noisy threshold that errs towards flagging looks like good recall on average while being wrong in both directions on any given draw.
+
+### Did anything warn before the labels arrived
+
+PSI and MMD on the score distributions need no target labels, so they are the only warning available in advance. Spearman correlation against the recall the shipped threshold lost, over 20 ordered pairs.
+
+| statistic | against signed loss | against absolute loss | among pairs that broke |
+| --- | --- | --- | --- |
+| PSI | -0.21 | +0.68 | +0.73 |
+| MMD | -0.07 | +0.82 | +0.81 |
+
+The last column is the one to read, over the 10 pairs where the promise actually broke. The first is near zero or negative, and that is arithmetic rather than a result: a score-distribution statistic is close to direction-blind, coming out nearly the same for a pair and for its reverse, while the loss does not. Shipping a threshold from an easy domain to a hard one loses recall and the reverse over-recalls, which pins the loss at its floor however large the drift, so correlating over both directions mixes a relationship with its mirror image. A high reading means recalibrate and measure, not that the promise moved in a particular direction.
+<!-- RESULTS:end -->
 
 ## The warehouse and the site
 

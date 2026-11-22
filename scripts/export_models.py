@@ -25,12 +25,11 @@ measured: a threshold fitted on int8 scores and applied to full precision ones w
 for a reason that has nothing to do with domain. The full precision export is kept beside
 it so the quantization cost stays measurable.
 
-The quantization cost measured before this script read the supported class from the model
-config was 0.0104 for MiniCheck and 0.0063 for the NLI model, against a tolerance of 0.02
-on recall. The MiniCheck figure still stands, since its supported class is output 1 either
-way. The NLI figure was taken on output 2, which is neutral, not entailment, so it does
-not describe the number the detector reads and is reported here only as the reason the
-export is checked at all. Both are rewritten by ``meta.json`` on the next export.
+Measured on the fixed pairs below, on the output each detector reads: full precision is
+faithful to PyTorch within 1.19e-07 for the embedding model, 7.28e-11 for the NLI one and
+4.17e-07 for MiniCheck, and quantizing to int8 costs 4.25e-03 and 1.37e-02 respectively,
+against the 0.02 tolerance the benchmark reports recall against. MiniCheck uses most of
+that budget. ``meta.json`` in each export directory carries the figure for that export.
 """
 
 from __future__ import annotations
