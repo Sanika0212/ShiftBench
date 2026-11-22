@@ -72,6 +72,9 @@ def main() -> None:
         for their_name, our_name in detectors.items():
             path = scores_dir / f"{prefix}-{their_name}.json"
             if not path.exists():
+                # Named rather than skipped in silence: a renamed export over there would
+                # otherwise look exactly like a detector this benchmark never scored.
+                print(f"{domain}/{our_name}: {path.name} not found, nothing imported")
                 continue
             rows: list[dict[str, Any]] = json.loads(path.read_text())
             matched, unknown, disagreed = [], 0, 0
@@ -86,10 +89,19 @@ def main() -> None:
                 matched.append({"claim_id": claim_id, "support": row["support"]})
             added = 0 if args.dry_run else import_scores(matched, domain, our_name)
             imported += added
+            # Most of "unknown" is normally this benchmark's per-domain cap rather than a
+            # key that does not line up, so the size of the sample is printed beside it.
+            # A count near zero against a full sample is the signal worth noticing.
             print(
-                f"{domain}/{our_name}: {len(matched)} of {len(rows)} matched "
-                f"({unknown} unknown here, {disagreed} label mismatch), {added} new"
+                f"{domain}/{our_name}: {len(matched)} of {len(rows)} scores matched into "
+                f"{len(labels)} sampled claims ({unknown} not in the sample or unknown, "
+                f"{disagreed} label mismatch), {added} new"
             )
+            if matched and len(matched) < min(len(rows), len(labels)) // 2:
+                print(
+                    f"  warning: fewer than half of the {min(len(rows), len(labels))} "
+                    "overlappable claims matched, which looks like a key mismatch"
+                )
     print(f"imported {imported} scores" + (" (dry run)" if args.dry_run else ""))
 
 

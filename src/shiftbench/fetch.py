@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from shiftbench.domains import DOMAINS, frame
@@ -220,7 +221,7 @@ def balanced_sample(claims: pd.DataFrame, limit: int, seed: int = 0) -> pd.DataF
     """
     if limit <= 0 or len(claims) <= limit:
         return claims.reset_index(drop=True)
-    rng = __import__("numpy").random.default_rng(seed)
+    rng = np.random.default_rng(seed)
     out = []
     for supported, group in claims.groupby("supported"):
         take = min(len(group), limit // 2 + (limit % 2 if not supported else 0))
