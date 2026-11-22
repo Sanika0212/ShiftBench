@@ -30,7 +30,17 @@ in the domain they were tuned on.
       round for a shift repair. So every weighted row carries the classifier's separability
       and the spread of its weights, and a row whose spread is near zero is reported as
       having done nothing rather than as a repair that did not help.
-   3. `mondrian`, a separate threshold per group inside the source.
+   3. `mondrian`, a separate threshold per group inside the source. The group has to mean
+      the same thing on both sides, which rules out the obvious choice. `group_id` keeps one
+      document's claims together so a split never puts a document on both sides, and it is
+      specific to its domain twice over: legal carries 591 groups across 600 claims, so no
+      group holds the 25 unsupported claims a threshold needs, and no target domain contains
+      a single one of the source's groups. Fitted on it, every claim took the pooled
+      fallback and the method was `split` under another name, identical on all 20
+      cross-domain pairs and on 4 of the 5 same-domain ones, with nothing in the output
+      saying so. The groups are quantiles of evidence length instead: label-free, present in
+      every domain, and coarse enough to fit on. Every mondrian row carries the share of
+      target claims that got their own group's threshold, so a run that falls back says so.
    4. `oracle`, fitted on the target's own labels. The ceiling nobody has.
 4. **Price the repair**: label k target claims, recalibrate on them, measure on the rest, over
    many draws. The curve says what k buys.
