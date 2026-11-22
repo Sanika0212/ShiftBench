@@ -19,6 +19,7 @@ neither can still reproduce the numbers.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -96,10 +97,40 @@ class OnnxEmbedding:
         return np.asarray((a * b).sum(axis=1), dtype=np.float32)
 
 
+def supported_class(directory: Path) -> int:
+    """Which output of a cross-encoder means "the evidence supports the claim".
+
+    Read from the model's own ``config.json`` rather than assumed from the shape of the
+    output. This was a fixed -1, with a comment that entailment is the last class in the
+    usual MNLI ordering. It is not, for the model this benchmark uses:
+    cross-encoder/nli-deberta-v3-base labels 0 contradiction, 1 entailment, 2 neutral, so
+    -1 read the probability of neutral and called it support.
+
+    That one mattered more than most. The scientific and medical scores are imported from a
+    sibling project, which selects entailment by name, so the same detector would have meant
+    entailment on two domains and neutral on the three scored here. A benchmark that exists
+    to measure what happens to a detector across domains would have reported its own
+    indexing error as domain shift.
+
+    A two-output model is MiniCheck's shape, whose labels config carries as "0" and "1"
+    with 1 meaning supported. Anything else is refused rather than guessed at.
+    """
+    config = json.loads((directory / "config.json").read_text())
+    labels = {int(k): str(v).lower() for k, v in config.get("id2label", {}).items()}
+    named = [i for i, name in labels.items() if name.startswith("entail")]
+    if named:
+        return named[0]
+    if len(labels) == 2:
+        return 1
+    raise ValueError(
+        f"{directory}: cannot tell which of {sorted(labels.items())} means supported"
+    )
+
+
 class OnnxPairClassifier:
     """An ONNX cross-encoder: the probability of the class that means supported."""
 
-    def __init__(self, name: str, directory: Path, supported_index: int = 0,
+    def __init__(self, name: str, directory: Path, supported_index: int | None = None,
                  max_tokens: int = 1024) -> None:
         from transformers import AutoTokenizer
 
@@ -112,7 +143,9 @@ class OnnxPairClassifier:
         options.intra_op_num_threads = int(os.environ.get("OMP_NUM_THREADS", "2"))
         self.session = ort.InferenceSession(str(path / "model.onnx"), options,
                                             providers=["CPUExecutionProvider"])
-        self.supported_index = supported_index
+        self.supported_index = (
+            supported_class(path) if supported_index is None else supported_index
+        )
         self.max_tokens = max_tokens
 
     def score(self, claims: list[str], evidence: list[str]) -> np.ndarray:
@@ -131,9 +164,18 @@ class OnnxPairClassifier:
 class OllamaJudge:
     """A local instruction model asked whether the evidence supports the claim.
 
-    The score is the probability it puts on "yes", read from the token logprobs where the
-    server returns them, and otherwise 1.0 or 0.0 from the answer itself. Runs locally, so
-    the spending cap in the plan is a time cap instead: it is the slowest detector here.
+    The score is 1.0 or 0.0 from the answer word. The docstring here used to say it read
+    the probability of "yes" from the token logprobs where the server returns them, which
+    the code has never done.
+
+    That matters beyond the docstring: a score with two values cannot carry a threshold at
+    a promised recall, because every quantile of it is 0 or 1. So this detector cannot take
+    part in the calibration comparison as it stands, and it is not in DEFAULT_DETECTORS. It
+    is kept because asking a judge is what a team reaches for first, and the reason it does
+    not fit here is worth being able to point at. Reading the logprobs would fix it.
+
+    Runs locally, so the spending cap in the plan is a time cap instead: it is the slowest
+    detector here.
     """
 
     name = "judge"
@@ -172,10 +214,10 @@ def build(name: str, models: Path | None = None) -> Detector:
     if name == "embedding-similarity":
         return OnnxEmbedding(root / "embedding")
     if name == "nli":
-        # Entailment is the last class in the usual MNLI ordering.
-        return OnnxPairClassifier("nli", root / "nli", supported_index=-1)
+        # Which output means support comes from the model's config, not from its shape.
+        return OnnxPairClassifier("nli", root / "nli")
     if name == "minicheck":
-        return OnnxPairClassifier("minicheck", root / "minicheck", supported_index=-1)
+        return OnnxPairClassifier("minicheck", root / "minicheck")
     if name == "judge":
         return OllamaJudge()
     raise KeyError(f"unknown detector {name}")

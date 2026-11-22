@@ -81,6 +81,17 @@ cached scores `scripts/import_evidence_gate.py` reuses.
 | minicheck | a model trained for exactly this judgement | medium |
 | judge | a local instruction model asked supported or not | slow |
 
+The judge is listed and is not in the default set. It answers one word, so its score takes
+two values, and a threshold at a promised recall needs a score with a distribution: every
+quantile of a two-valued score is 0 or 1. Reading the token logprobs would give it one.
+Until then it cannot take part in the comparison, which is worth stating because asking a
+model directly is what a team tends to reach for first.
+
+Which output of a cross-encoder means "supported" is read from the model's own
+`config.json`, not assumed from the shape of the output. It was assumed once, as the last
+output, and `cross-encoder/nli-deberta-v3-base` orders its labels contradiction,
+entailment, neutral, so that read neutral as support.
+
 `scripts/export_models.py` rebuilds the ONNX detectors from the Hub and reports the largest
 difference between each export and PyTorch, so an export can be checked before its scores
 are trusted.
