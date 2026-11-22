@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS shiftbench.pairs (
   -- domain_separability at 1.0 means the domains do not overlap, so the weights are an
   -- extrapolation rather than an estimate.
   weight_spread FLOAT64,
-  domain_separability FLOAT64
+  domain_separability FLOAT64,
+  -- Set on the mondrian method only, NULL elsewhere: the share of target claims whose own
+  -- group had a threshold rather than the pooled fallback. 0.0 means the method never ran,
+  -- which is what happened while the groups were document ids no target domain contains.
+  group_coverage FLOAT64
 )
 CLUSTER BY detector, source, target;
 

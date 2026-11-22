@@ -14,6 +14,7 @@ from shiftbench.calibration import (
     false_alarm_rate,
     labels_to_recover,
     mmd,
+    mondrian_coverage,
     mondrian_thresholds,
     psi,
     reweight,
@@ -189,3 +190,40 @@ def test_drift_statistics_see_the_shift() -> None:
 def test_calibrating_without_an_unsupported_claim_is_refused() -> None:
     with pytest.raises(ValueError, match="unsupported"):
         threshold_for_recall(np.linspace(0, 1, 10), np.zeros(10, dtype=bool), 0.9)
+
+
+def test_recall_and_false_alarms_accept_one_threshold_per_claim() -> None:
+    """A per-group threshold is an array, and every measure has to take one.
+
+    The analysis used to compute the mondrian row's recall and false alarms by hand because
+    these took a scalar, which is how that one method came to report no interval.
+    """
+    scores = np.linspace(0, 1, 100)
+    unsupported = np.arange(100) < 50
+    broadcast = np.full(100, 0.4)
+    assert achieved_recall(scores, unsupported, 0.4) == achieved_recall(scores, unsupported, broadcast)
+    assert false_alarm_rate(scores, unsupported, 0.4) == false_alarm_rate(scores, unsupported, broadcast)
+
+    one_sided = np.where(np.arange(100) < 50, 1.0, 0.0)
+    assert achieved_recall(scores, unsupported, one_sided) == 1.0
+    assert false_alarm_rate(scores, unsupported, one_sided) == 0.0
+
+
+def test_the_interval_takes_a_per_claim_threshold_with_its_claim() -> None:
+    scores = np.linspace(0, 1, 200)
+    unsupported = np.arange(200) < 100
+    scalar = bootstrap_recall(scores, unsupported, 0.4, seed=0)
+    array = bootstrap_recall(scores, unsupported, np.full(200, 0.4), seed=0)
+    assert (scalar.point, scalar.low, scalar.high) == (array.point, array.low, array.high)
+
+
+def test_mondrian_coverage_is_zero_when_the_groups_do_not_transfer() -> None:
+    """Document ids never repeat across domains, so every claim took the pooled threshold."""
+    scores = np.linspace(0, 1, 200)
+    unsupported = np.arange(200) < 100
+    groups = np.array([f"source-doc-{i}" for i in range(200)])
+    thresholds = mondrian_thresholds(scores, unsupported, groups, 0.9)
+    assert mondrian_coverage(thresholds, np.array([f"target-doc-{i}" for i in range(50)])) == 0.0
+    assert mondrian_coverage(thresholds, groups) == 0.0  # none reaches the minimum either
+    big = np.where(np.arange(200) < 100, "low", "high")
+    assert mondrian_coverage(mondrian_thresholds(scores, unsupported, big, 0.9), big) > 0.0

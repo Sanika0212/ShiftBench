@@ -11,7 +11,13 @@ RNG = np.random.default_rng
 
 
 def domain(name: str, n: int = 800, shift: float = 0.0, seed: int = 0) -> pd.DataFrame:
-    """A domain where unsupported claims score lower, by a margin ``shift`` erodes."""
+    """A domain where unsupported claims score lower, by a margin ``shift`` erodes.
+
+    The evidence is several words of varying length, not one long token. It used to be one
+    token, which left every claim in the same length bin and so exercised the mondrian
+    threshold on a taxonomy with a single group: the method could not differ from split in
+    any test, which is part of why it took a run over real data to notice that it never did.
+    """
     rng = RNG(seed)
     unsupported = rng.random(n) < 0.4
     support = np.where(unsupported, rng.normal(0.3 + shift, 0.15, n), rng.normal(0.7, 0.15, n)).clip(0, 1)
@@ -20,7 +26,7 @@ def domain(name: str, n: int = 800, shift: float = 0.0, seed: int = 0) -> pd.Dat
             "claim_id": [f"{name}-{i}" for i in range(n)],
             "domain": name,
             "claim": ["c" * (10 + i % 7) for i in range(n)],
-            "evidence": ["e" * (40 + i % 11) for i in range(n)],
+            "evidence": [" ".join(["word"] * (20 + i % 40)) for i in range(n)],
             "supported": ~unsupported,
             "unsupported": unsupported,
             "group_id": [f"g{i % 4}" for i in range(n)],
@@ -183,3 +189,47 @@ def test_the_leaderboard_ranks_the_honest_detector_first() -> None:
     board = leaderboard(pairs, budgets(scored))
     assert next(iter(board["detector"])) == "honest"
     assert board.set_index("detector").loc["fragile", "worst_gap"] < 0
+
+
+def test_the_taxonomy_labels_both_sides_with_the_sources_edges() -> None:
+    """A mondrian group has to mean the same thing in the target as in the source."""
+    from shiftbench.analysis import taxonomy
+
+    source, target = domain("a", seed=0), domain("b", seed=1)
+    s_groups, t_groups = taxonomy(source, target)
+    assert len(s_groups) == len(source)
+    assert len(t_groups) == len(target)
+    assert set(t_groups) <= set(s_groups)
+    assert len(set(s_groups)) > 1
+
+
+def test_mondrian_covers_every_target_claim_where_document_groups_covered_none() -> None:
+    """The method used group_id, and no target domain holds one of the source's documents.
+
+    Every claim therefore took the pooled fallback, which is the split threshold, so the row
+    was split under another name. The taxonomy is defined on both sides, so coverage is full.
+    """
+    from shiftbench.analysis import taxonomy
+    from shiftbench.calibration import mondrian_coverage, mondrian_thresholds
+
+    source, target = domain("a", seed=0), domain("b", shift=0.25, seed=1)
+    scores = source["support"].to_numpy()
+    unsupported = source["unsupported"].to_numpy()
+
+    documents = np.array([f"a-doc-{i}" for i in range(len(source))])
+    their_documents = np.array([f"b-doc-{i}" for i in range(len(target))])
+    by_document = mondrian_thresholds(scores, unsupported, documents, 0.9)
+    assert mondrian_coverage(by_document, their_documents) == 0.0
+
+    s_groups, t_groups = taxonomy(source, target)
+    by_length = mondrian_thresholds(scores, unsupported, s_groups, 0.9)
+    assert mondrian_coverage(by_length, t_groups) == 1.0
+
+
+def test_mondrian_reports_an_interval_like_every_other_method() -> None:
+    """It reported nan because it computed its recall by hand instead of through the same call."""
+    rows = {r.method: r for r in evaluate_pair(domain("a", seed=0), domain("b", shift=0.25, seed=1), "fake")}
+    mondrian = rows["mondrian"]
+    assert not np.isnan(mondrian.achieved_low)
+    assert mondrian.achieved_low <= mondrian.achieved <= mondrian.achieved_high
+    assert mondrian.group_coverage == 1.0

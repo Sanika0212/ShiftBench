@@ -64,19 +64,31 @@ def threshold_for_recall(scores: np.ndarray, unsupported: np.ndarray, target: fl
     return float(np.sort(flagged)[min(n, max(1, rank)) - 1])
 
 
-def achieved_recall(scores: np.ndarray, unsupported: np.ndarray, threshold: float) -> float:
-    flagged = np.asarray(scores)[np.asarray(unsupported, dtype=bool)]
+def _limits(scores: np.ndarray, threshold: float | np.ndarray) -> np.ndarray:
+    """One threshold per claim, whether one number was given or one per claim.
+
+    A per-group threshold is an array, and the alternative to broadcasting it here was the
+    analysis computing recall and false alarms for that one method by hand, which is how it
+    came to report an interval for three methods and nan for the fourth.
+    """
+    return np.broadcast_to(np.asarray(threshold, dtype=float), np.asarray(scores).shape)
+
+
+def achieved_recall(scores: np.ndarray, unsupported: np.ndarray, threshold: float | np.ndarray) -> float:
+    mask = np.asarray(unsupported, dtype=bool)
+    flagged = np.asarray(scores)[mask]
     if flagged.size == 0:
         return float("nan")
-    return float(np.mean(flagged <= threshold))
+    return float(np.mean(flagged <= _limits(scores, threshold)[mask]))
 
 
-def false_alarm_rate(scores: np.ndarray, unsupported: np.ndarray, threshold: float) -> float:
+def false_alarm_rate(scores: np.ndarray, unsupported: np.ndarray, threshold: float | np.ndarray) -> float:
     """The share of supported claims the threshold flags, which is what recall costs."""
-    supported = np.asarray(scores)[~np.asarray(unsupported, dtype=bool)]
+    mask = ~np.asarray(unsupported, dtype=bool)
+    supported = np.asarray(scores)[mask]
     if supported.size == 0:
         return float("nan")
-    return float(np.mean(supported <= threshold))
+    return float(np.mean(supported <= _limits(scores, threshold)[mask]))
 
 
 @dataclass(frozen=True)
@@ -90,17 +102,27 @@ class Interval:
 
 
 def bootstrap_recall(
-    scores: np.ndarray, unsupported: np.ndarray, threshold: float, draws: int = 2000, seed: int = 0
+    scores: np.ndarray,
+    unsupported: np.ndarray,
+    threshold: float | np.ndarray,
+    draws: int = 2000,
+    seed: int = 0,
 ) -> Interval:
-    """A percentile interval on achieved recall, resampling the unsupported claims."""
-    flagged = np.asarray(scores)[np.asarray(unsupported, dtype=bool)]
+    """A percentile interval on achieved recall, resampling the unsupported claims.
+
+    ``threshold`` may be one number or one per claim. A per-claim threshold is resampled
+    with the claim it belongs to, so the interval means the same thing for every method.
+    """
+    mask = np.asarray(unsupported, dtype=bool)
+    flagged = np.asarray(scores)[mask]
     if flagged.size == 0:
         return Interval(float("nan"), float("nan"), float("nan"))
+    limits = _limits(scores, threshold)[mask]
     rng = RNG(seed)
     idx = rng.integers(0, flagged.size, size=(draws, flagged.size))
-    draws_recall = np.mean(flagged[idx] <= threshold, axis=1)
+    draws_recall = np.mean(flagged[idx] <= limits[idx], axis=1)
     return Interval(
-        float(np.mean(flagged <= threshold)),
+        float(np.mean(flagged <= limits)),
         float(np.quantile(draws_recall, 0.025)),
         float(np.quantile(draws_recall, 0.975)),
     )
@@ -212,6 +234,20 @@ def mondrian_thresholds(
 def apply_mondrian(thresholds: dict[str, float], groups: np.ndarray) -> np.ndarray:
     pooled = thresholds["__pooled__"]
     return np.array([thresholds.get(str(g), pooled) for g in np.asarray(groups)])
+
+
+def mondrian_coverage(thresholds: dict[str, float], groups: np.ndarray) -> float:
+    """The share of claims whose own group had a threshold, rather than the pooled fallback.
+
+    Zero means the method did not run: every claim took the pooled threshold, which is the
+    split threshold, and the row is split wearing another name. Worth a number because that
+    is exactly what happened when the groups were document ids, and the two rows being equal
+    was the only sign of it.
+    """
+    groups = np.asarray(groups)
+    if groups.size == 0:
+        return float("nan")
+    return float(np.mean([str(g) in thresholds for g in groups]))
 
 
 def labels_to_recover(

@@ -31,6 +31,7 @@ from shiftbench.calibration import (
     false_alarm_rate,
     labels_to_recover,
     mmd,
+    mondrian_coverage,
     mondrian_thresholds,
     psi,
     reweight,
@@ -41,6 +42,7 @@ from shiftbench.runner import features
 
 TARGET = 0.90
 TOLERANCE = 0.02
+MONDRIAN_BINS = 4
 
 
 @dataclass
@@ -63,6 +65,9 @@ class Pair:
     # another name. Reported rather than left to be inferred from the two being equal.
     weight_spread: float = float("nan")
     domain_separability: float = float("nan")
+    # Only the mondrian method fills this in: the share of target claims whose own group had
+    # a threshold rather than the pooled fallback. Zero means the method never ran.
+    group_coverage: float = float("nan")
 
     def as_row(self) -> dict[str, Any]:
         return asdict(self)
@@ -70,6 +75,37 @@ class Pair:
 
 def _split(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return frame["support"].to_numpy(dtype=float), frame["unsupported"].to_numpy(dtype=bool)
+
+
+def taxonomy(
+    fit: pd.DataFrame, measure: pd.DataFrame, bins: int = MONDRIAN_BINS
+) -> tuple[np.ndarray, np.ndarray]:
+    """A group label that exists on both sides, which is what a Mondrian threshold needs.
+
+    ``group_id`` cannot do this job, though it was what the method used. It exists to keep
+    one document's claims together so a split never puts a document on both sides, and it is
+    specific to its domain twice over: legal carries 591 groups across 600 claims, so no
+    group holds the minimum number of unsupported claims a threshold needs, and no target
+    domain contains a single one of the source's groups. Every claim therefore took the
+    pooled fallback, and the method was the split threshold wearing another name: identical
+    to split, in threshold and in achieved recall, on all 20 cross-domain pairs and on 4 of
+    the 5 same-domain ones. Two rows agreeing was the only sign of it.
+
+    Evidence length in words is label-free, defined in every domain, and coarse enough that
+    each bin holds enough unsupported claims to fit on. The edges are quantiles of the
+    source alone, so nothing about the target enters its own threshold.
+    """
+
+    def words(frame: pd.DataFrame) -> np.ndarray:
+        return frame["evidence"].str.count(r"\S+").to_numpy(dtype=float)
+
+    source_words, target_words = words(fit), words(measure)
+    edges = np.quantile(source_words, np.linspace(0, 1, bins + 1)[1:-1])
+
+    def label(values: np.ndarray) -> np.ndarray:
+        return np.array([f"length-{i}" for i in np.digitize(values, edges)])
+
+    return label(source_words), label(target_words)
 
 
 def evaluate_pair(
@@ -80,7 +116,12 @@ def evaluate_pair(
     t_scores, t_unsupported = _split(target)
     rows: list[Pair] = []
 
-    def add(method: str, threshold: float, reweighting: Reweighting | None = None) -> None:
+    def add(
+        method: str,
+        threshold: float | np.ndarray,
+        reweighting: Reweighting | None = None,
+        coverage: float = float("nan"),
+    ) -> None:
         interval = bootstrap_recall(t_scores, t_unsupported, threshold, seed=seed)
         rows.append(
             Pair(
@@ -88,7 +129,7 @@ def evaluate_pair(
                 source=str(source["domain"].iloc[0]),
                 target=str(target["domain"].iloc[0]),
                 method=method,
-                threshold=float(threshold),
+                threshold=float(np.median(threshold)),
                 promised=promised,
                 achieved=interval.point,
                 achieved_low=interval.low,
@@ -99,6 +140,7 @@ def evaluate_pair(
                 n_target=len(target),
                 weight_spread=float("nan") if reweighting is None else reweighting.spread,
                 domain_separability=(float("nan") if reweighting is None else reweighting.separability),
+                group_coverage=coverage,
             )
         )
 
@@ -111,27 +153,13 @@ def evaluate_pair(
     )
     add("oracle", threshold_for_recall(t_scores, t_unsupported, promised))
 
-    if "group_id" in source and source["group_id"].notna().any():
-        thresholds = mondrian_thresholds(s_scores, s_unsupported, source["group_id"].to_numpy(), promised)
-        per_claim = apply_mondrian(thresholds, target["group_id"].to_numpy())
-        recall = float(np.mean(t_scores[t_unsupported] <= per_claim[t_unsupported]))
-        rows.append(
-            Pair(
-                detector=detector,
-                source=str(source["domain"].iloc[0]),
-                target=str(target["domain"].iloc[0]),
-                method="mondrian",
-                threshold=float(np.median(per_claim)),
-                promised=promised,
-                achieved=recall,
-                achieved_low=float("nan"),
-                achieved_high=float("nan"),
-                false_alarms=float(np.mean(t_scores[~t_unsupported] <= per_claim[~t_unsupported])),
-                gap=recall - promised,
-                n_source=len(source),
-                n_target=len(target),
-            )
-        )
+    s_groups, t_groups = taxonomy(source, target)
+    thresholds = mondrian_thresholds(s_scores, s_unsupported, s_groups, promised)
+    add(
+        "mondrian",
+        apply_mondrian(thresholds, t_groups),
+        coverage=mondrian_coverage(thresholds, t_groups),
+    )
     return rows
 
 
