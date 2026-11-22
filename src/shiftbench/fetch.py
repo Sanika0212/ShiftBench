@@ -53,6 +53,28 @@ def _read(path: Path) -> list[dict[str, Any]]:
     return loaded if isinstance(loaded, list) else [loaded]
 
 
+def _class_names(path: Path, column: str) -> list[str] | None:
+    """The names behind an integer label column, from the file's own schema.
+
+    The Hub's parquet exports carry a dataset's ClassLabel names in the Arrow schema
+    metadata, so an integer label can be decoded instead of guessed at. ContractNLI arrives
+    as 0, 1 and 2, and the names are contradiction, entailment and neutral: the loader read
+    them as strings and tested whether they started with "e", which no integer does, so
+    every legal claim came out unsupported and none of the "not mentioned" rows were
+    dropped. Returns None when the file does not say, and the caller then has to.
+    """
+    if path.suffix != ".parquet":
+        return None
+    import pyarrow.parquet as pq
+
+    raw = (pq.read_schema(path).metadata or {}).get(b"huggingface")
+    if not raw:
+        return None
+    feature = json.loads(raw.decode()).get("info", {}).get("features", {}).get(column, {})
+    names = feature.get("names") if feature.get("_type") == "ClassLabel" else None
+    return [str(n) for n in names] if names else None
+
+
 def _first(row: dict[str, Any], *names: str) -> Any:
     for name in names:
         if name in row and row[name] is not None:
@@ -81,7 +103,9 @@ def scientific(root: Path = RAW) -> pd.DataFrame:
             labels: dict[int, str] = {}
             for ev in r["evidences"] if r["evidences"] is not None else []:
                 labels.setdefault(int(ev["doc_id"]), str(ev["label"]).upper())
-            for doc_id in r["cited_doc_ids"]:
+            # Deduplicated: claim 1245 of the validation split cites document 7662395
+            # twice, and the same claim against the same document is one pair, not two.
+            for doc_id in dict.fromkeys(int(d) for d in r["cited_doc_ids"]):
                 passage = docs.get(int(doc_id))
                 if not passage:
                     continue
@@ -125,6 +149,21 @@ def medical(root: Path = RAW) -> pd.DataFrame:
     return frame(rows)
 
 
+def _hallucination_count(row: dict[str, Any]) -> int:
+    """RAGTruth's per-kind counts, which agree with its spans on every row of this release."""
+    processed = row.get("hallucination_labels_processed")
+    if isinstance(processed, str):
+        import ast
+
+        try:
+            processed = ast.literal_eval(processed)
+        except (ValueError, SyntaxError):
+            return 0
+    if not isinstance(processed, dict):
+        return 0
+    return sum(int(v) for v in processed.values() if str(v).lstrip("-").isdigit())
+
+
 def general(root: Path = RAW) -> pd.DataFrame:
     """RAGTruth: an answer against the passages the model was given."""
     domain = DOMAINS["general"]
@@ -135,16 +174,23 @@ def general(root: Path = RAW) -> pd.DataFrame:
             if isinstance(passages, list | tuple):
                 passages = "\n".join(str(p) for p in passages)
             answer = str(_first(row, "response", "answer", "output"))
-            labels = row.get("labels") or row.get("hallucination_spans") or []
+            # RAGTruth names these columns hallucination_labels, a list of spans, and
+            # hallucination_labels_processed, a count per kind. Neither was being read, so
+            # labels was always empty and every answer came out supported. The two agree on
+            # all 17,790 rows of this release, which is checked rather than assumed.
+            labels = (
+                row.get("hallucination_labels") or row.get("labels") or row.get("hallucination_spans") or []
+            )
             if isinstance(labels, str):
                 labels = json.loads(labels) if labels.strip().startswith("[") else []
+            flagged = len(labels) > 0 or _hallucination_count(row) > 0
             rows.append(
                 {
                     "claim_id": f"ragtruth-{name.split('/')[1]}-{i}",
                     "domain": "general",
                     "claim": answer,
                     "evidence": str(passages),
-                    "supported": len(labels) == 0,
+                    "supported": not flagged,
                     "group_id": str(row.get("task_type") or row.get("source_id") or "answer"),
                     "source": "ragtruth",
                 }
@@ -157,9 +203,18 @@ def legal(root: Path = RAW) -> pd.DataFrame:
     domain = DOMAINS["legal"]
     rows = []
     for name in domain.files:
-        for i, row in enumerate(_read(_hub(domain.repo, name, root, domain.revision))):
-            label = str(_first(row, "label", "gold_label")).lower()
-            if label.startswith("n"):
+        path = _hub(domain.repo, name, root, domain.revision)
+        names = _class_names(path, "label")
+        for i, row in enumerate(_read(path)):
+            raw = _first(row, "label", "gold_label")
+            # Integer labels are decoded through the file's own ClassLabel names. Without
+            # that they stringify to "0", "1" and "2", and a test for "entailment" on those
+            # is false for every row.
+            if names is not None and not isinstance(raw, str):
+                label = names[int(raw)].lower()
+            else:
+                label = str(raw).lower()
+            if label.startswith(("n", "2")):
                 continue  # "not mentioned" is neither supported nor contradicted
             rows.append(
                 {

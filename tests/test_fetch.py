@@ -156,6 +156,120 @@ def test_legal_keys_by_split_so_the_two_splits_cannot_collide(
     assert list(frame["supported"]) == [True, False, True, False]
 
 
+def test_legal_decodes_integer_labels_through_the_class_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ContractNLI arrives as 0, 1, 2 and the names live in the parquet schema.
+
+    Read as strings, no integer starts with "e", so every legal claim came out unsupported
+    and none of the "not mentioned" rows were dropped: 300 claims, 0% supported.
+    """
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    train, test = fetch.DOMAINS["legal"].files
+    table = pa.Table.from_pandas(
+        pd.DataFrame(
+            {
+                "premise": ["p0", "p1", "p2"],
+                "hypothesis": ["h0", "h1", "h2"],
+                "label": [0, 1, 2],
+            }
+        )
+    )
+    meta = json.dumps(
+        {
+            "info": {
+                "features": {
+                    "label": {
+                        "names": ["contradiction", "entailment", "neutral"],
+                        "_type": "ClassLabel",
+                    }
+                }
+            }
+        }
+    )
+    table = table.replace_schema_metadata({"huggingface": meta})
+    path = tmp_path / "legal.parquet"
+    pq.write_table(table, path)
+    serve(monkeypatch, {train: path, test: path})
+
+    assert fetch._class_names(path, "label") == ["contradiction", "entailment", "neutral"]
+    frame = fetch.legal(tmp_path)
+    # Two rows survive per split: neutral means "not mentioned" and is dropped.
+    assert len(frame) == 4
+    assert list(frame["supported"]) == [False, True, False, True]
+
+
+def test_general_reads_the_column_ragtruth_actually_uses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The loader looked for "labels" and the column is "hallucination_labels".
+
+    So the span list was always empty and every answer came out supported: 300 claims,
+    100% supported, which cannot calibrate a threshold at all.
+    """
+    train, test = fetch.DOMAINS["general"].files
+    rows = [
+        {
+            "context": "Some passages.",
+            "output": "A grounded answer.",
+            "task_type": "Summary",
+            "hallucination_labels": "[]",
+            "hallucination_labels_processed": "{'evident_conflict': 0, 'baseless_info': 0}",
+        },
+        {
+            "context": "Some passages.",
+            "output": "An invented answer.",
+            "task_type": "Summary",
+            "hallucination_labels": '[{"start": 0, "end": 2}]',
+            "hallucination_labels_processed": "{'evident_conflict': 1, 'baseless_info': 0}",
+        },
+    ]
+    empty = write(tmp_path / "empty.json", [])
+    serve(monkeypatch, {train: write(tmp_path / "train.json", rows), test: empty})
+    frame = fetch.general(tmp_path)
+    assert list(frame["supported"]) == [True, False]
+
+
+def test_general_falls_back_to_the_processed_counts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The two columns agree on all 17,790 rows, so either settles it."""
+    train, test = fetch.DOMAINS["general"].files
+    rows = [
+        {
+            "context": "c",
+            "output": "o",
+            "task_type": "QA",
+            "hallucination_labels_processed": {"evident_conflict": 2, "baseless_info": 0},
+        }
+    ]
+    serve(
+        monkeypatch,
+        {train: write(tmp_path / "t.json", rows), test: write(tmp_path / "e.json", [])},
+    )
+    assert list(fetch.general(tmp_path)["supported"]) == [False]
+
+
+def test_scientific_counts_a_repeated_citation_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Claim 1245 of the validation split cites document 7662395 twice, and the loader
+    refused the whole domain on a duplicate claim id because of it."""
+    train, validation, corpus = fetch.DOMAINS["scientific"].files
+    serve(
+        monkeypatch,
+        {
+            corpus: write(tmp_path / "c.json", [{"doc_id": 5, "title": "T", "abstract": ["a."]}]),
+            train: write(
+                tmp_path / "t.json",
+                [{"id": 1, "claim": "c", "evidences": [], "cited_doc_ids": [5, 5]}],
+            ),
+            validation: write(tmp_path / "v.json", []),
+        },
+    )
+    frame = fetch.scientific(tmp_path)
+    assert list(frame["claim_id"]) == ["scifact-train-1-5"]
+
+
 def test_balanced_sample_keeps_both_classes_and_respects_the_cap() -> None:
     """A quantile fitted on twelve unsupported claims is noise, so the cap samples evenly."""
     import pandas as pd
