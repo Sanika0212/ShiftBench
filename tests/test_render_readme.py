@@ -31,6 +31,7 @@ def pair(
     alarms: float = 0.3,
     spread: float = float("nan"),
     separability: float = float("nan"),
+    coverage: float = float("nan"),
 ) -> dict[str, Any]:
     return {
         "detector": detector,
@@ -48,6 +49,7 @@ def pair(
         "n_target": 300,
         "weight_spread": spread,
         "domain_separability": separability,
+        "group_coverage": coverage,
     }
 
 
@@ -64,7 +66,19 @@ def results(tmp_path: Path, weighted_spread: float, separability: float) -> Path
         ):
             spread = weighted_spread if method == "weighted" else float("nan")
             sep = separability if method == "weighted" else float("nan")
-            rows.append(pair("fake", source, target, method, achieved, spread=spread, separability=sep))
+            covered = 1.0 if method == "mondrian" else float("nan")
+            rows.append(
+                pair(
+                    "fake",
+                    source,
+                    target,
+                    method,
+                    achieved,
+                    spread=spread,
+                    separability=sep,
+                    coverage=covered,
+                )
+            )
     pd.DataFrame(rows).to_parquet(root / "pairs.parquet", index=False)
     pd.DataFrame(
         [
@@ -174,3 +188,30 @@ def test_rendering_twice_changes_nothing(tmp_path: Path, monkeypatch: pytest.Mon
     twice = module.replace(once, rendered)
     assert once == twice
     assert "RESULTS_SECTION" not in once
+
+
+def test_a_mondrian_row_that_never_ran_says_so(tmp_path: Path) -> None:
+    """Zero coverage means every claim took the pooled threshold, which is the split one.
+
+    That is what the method did while its groups were document ids, and the only sign was
+    its recall column matching split exactly. The section has to name it either way.
+    """
+    module = load_module()
+    rows = []
+    for source, target in (("a", "b"), ("b", "a")):
+        for method, achieved in (("split", 0.80), ("weighted", 0.82), ("mondrian", 0.80), ("oracle", 0.91)):
+            rows.append(
+                pair(
+                    "fake",
+                    source,
+                    target,
+                    method,
+                    achieved,
+                    spread=3.0 if method == "weighted" else float("nan"),
+                    separability=0.5 if method == "weighted" else float("nan"),
+                    coverage=0.0 if method == "mondrian" else float("nan"),
+                )
+            )
+    text = "\n".join(module.methods({"pairs": pd.DataFrame(rows), "summary": {"promised": 0.90}}))
+    assert "0% of target claims" in text
+    assert "under another name" in text

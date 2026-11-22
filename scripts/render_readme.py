@@ -124,6 +124,30 @@ def methods(data: dict[str, Any]) -> list[str]:
         lines.append(
             f"| {method} | {rows['achieved'].mean():.3f} | {kept:.0%} | {rows['false_alarms'].mean():.2f} |"
         )
+    mondrian = off[off["method"] == "mondrian"]
+    if not mondrian.empty and mondrian["group_coverage"].notna().any():
+        covered = float(mondrian["group_coverage"].mean())
+        split_rows = off[off["method"] == "split"]
+        identical = float(
+            (
+                mondrian.set_index(["detector", "source", "target"])["achieved"]
+                == split_rows.set_index(["detector", "source", "target"])["achieved"]
+            ).mean()
+        )
+        lines += [
+            "",
+            f"The mondrian row carries the same kind of diagnostic. Its groups are quantiles "
+            f"of evidence length, so a group means the same thing in the target as in the "
+            f"source, and {covered:.0%} of target claims were scored against their own "
+            f"group's threshold rather than the pooled fallback. It agrees exactly with "
+            f"split on {identical:.0%} of pairs.",
+        ]
+        if covered < 0.5:
+            lines.append(
+                "Below half, most claims fell back to the pooled threshold, which is the "
+                "split threshold, so this row is mostly that one under another name."
+            )
+
     weighted = off[off["method"] == "weighted"]
     if not weighted.empty and weighted["weight_spread"].notna().any():
         spread = float(weighted["weight_spread"].mean())
