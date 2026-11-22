@@ -46,7 +46,7 @@ def test_the_page_lists_every_detector_and_its_numbers() -> None:
 def test_a_detector_that_never_recovers_shows_a_dash_not_a_nan() -> None:
     html = render({"leaderboard": board()})
     assert "nan" not in html.lower()
-    assert "&mdash;" in html
+    assert "n/a" in html
 
 
 def test_the_matrix_marks_a_kept_promise_differently_from_a_broken_one() -> None:

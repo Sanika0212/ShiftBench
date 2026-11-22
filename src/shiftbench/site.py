@@ -57,7 +57,7 @@ def load_results(root: Path = RESULTS) -> dict[str, pd.DataFrame]:
 
 def _cell(value: float, promised: float, tolerance: float = 0.02) -> str:
     if value != value:
-        return '<td class="cell">&mdash;</td>'
+        return '<td class="cell">n/a</td>'
     klass = "good" if value >= promised - tolerance else ("warn" if value >= promised - 0.1 else "bad")
     return f'<td class="cell {klass}">{value:.2f}</td>'
 
@@ -72,7 +72,7 @@ def render(results: dict[str, pd.DataFrame], promised: float = 0.90) -> str:
     board, pairs = results["leaderboard"], results.get("pairs")
     rows = []
     for _, r in board.iterrows():
-        labels = "&mdash;" if r["labels_to_recover"] != r["labels_to_recover"] else int(r["labels_to_recover"])
+        labels = "n/a" if r["labels_to_recover"] != r["labels_to_recover"] else int(r["labels_to_recover"])
         rows.append(
             f"<tr><td>{r['detector']}</td>"
             f"<td class=num>{r['promise_kept']:.0%}</td>"
