@@ -1,9 +1,10 @@
 """The loaders that turn five different datasets into one shape.
 
 Every loader is driven from local fixtures, with ``_hub`` standing in for the download, so
-these run without the network. The claim ids matter beyond this repository: Evidence Gate's
-cached scores are matched to these rows by id, so a change in how one is built silently
-drops thousands of imported scores.
+these run without the network. Several of them pin the shape a field arrives in rather than
+the shape it is convenient to write a fixture in: MedHallu ships its Knowledge as an array of
+passages and Fin-Fact its evidence as records, and a fixture that simplifies those to strings
+is what let both of them be stringified into the evidence text unnoticed.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ def serve(monkeypatch: pytest.MonkeyPatch, files: dict[str, Path]) -> None:
 def test_scientific_keys_a_claim_by_split_claim_and_document(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """scifact-<split>-<claim id>-<doc id>, which is what the imported scores are keyed by."""
+    """scifact-<split>-<claim id>-<doc id>, so a cached score names the pair it came from."""
     train, validation, corpus = fetch.DOMAINS["scientific"].files
     serve(
         monkeypatch,
@@ -99,10 +100,8 @@ def test_scientific_skips_a_cited_document_it_does_not_have(
     assert list(frame["claim_id"]) == ["scifact-train-0-1"]
 
 
-def test_medical_makes_two_claims_per_question_keyed_as_evidence_gate_does(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """labeled-<i>-gt and labeled-<i>-h, 1000 of each in the scores being imported."""
+def test_medical_makes_two_claims_per_question(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """labeled-<i>-gt and labeled-<i>-h, one supported and one not."""
     (name,) = fetch.DOMAINS["medical"].files
     serve(
         monkeypatch,
@@ -291,3 +290,79 @@ def test_balanced_sample_returns_everything_when_under_the_cap() -> None:
     claims = pd.DataFrame({"claim_id": ["a", "b"], "supported": [True, False]})
     assert len(fetch.balanced_sample(claims, limit=50)) == 2
     assert len(fetch.balanced_sample(claims, limit=0)) == 2
+
+
+def test_text_joins_passages_instead_of_stringifying_the_container() -> None:
+    """str() on MedHallu's Knowledge is numpy's repr, and that went into the evidence."""
+    import numpy as np
+
+    out = fetch.text(np.array(["First passage.", " Second passage. "], dtype=object))
+    assert out == "First passage. Second passage."
+    assert "[" not in out
+    assert "'" not in out
+    assert fetch.text(["a", ["b", "c"]]) == "a b c"
+    assert fetch.text("  plain  ") == "plain"
+    assert fetch.text(["a", "b"], "\n") == "a\nb"
+
+
+def test_text_refuses_a_mapping() -> None:
+    """Fin-Fact's evidence records have to be narrowed to a field by the loader, not guessed."""
+    with pytest.raises(TypeError, match="not a mapping"):
+        fetch.text({"sentence": "s", "hrefs": ["u"]})
+
+
+def test_medical_joins_the_knowledge_passages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Three passages per row is the usual shape, and 100 percent of rows had the brackets."""
+    (name,) = fetch.DOMAINS["medical"].files
+    serve(
+        monkeypatch,
+        {
+            name: write(
+                tmp_path / "m.json",
+                [
+                    {
+                        "Knowledge": ["First passage.", "Second passage.", "Third passage."],
+                        "Question": "Why?",
+                        "Ground Truth": "Because.",
+                        "Hallucinated Answer": "Nonsense.",
+                    }
+                ],
+            )
+        },
+    )
+    evidence = fetch.medical(tmp_path).loc[0, "evidence"]
+    assert evidence == "First passage. Second passage. Third passage."
+
+
+def test_financial_takes_only_the_sentences_from_its_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Each Fin-Fact evidence record is {sentence, hrefs}, and the hrefs are archive URLs.
+
+    Joining the records with str() put dict punctuation and those URLs into the evidence,
+    which is noise to a grounding checker and tokens spent out of the model's 512.
+    """
+    (name,) = fetch.DOMAINS["financial"].files
+    serve(
+        monkeypatch,
+        {
+            name: write(
+                tmp_path / "f.json",
+                [
+                    {
+                        "claim": "Profits doubled.",
+                        "label": "true",
+                        "evidence": [
+                            {"sentence": "Revenue rose.", "hrefs": ["https://archive.is/aaa"]},
+                            {"sentence": "Costs fell.", "hrefs": ["https://archive.is/bbb"]},
+                        ],
+                        "issues": ["economy"],
+                    }
+                ],
+            )
+        },
+    )
+    row = fetch.financial(tmp_path).loc[0]
+    assert row["evidence"] == "Revenue rose. Costs fell."
+    assert "archive.is" not in row["evidence"]
+    assert row["group_id"] == "economy"

@@ -82,20 +82,44 @@ def _first(row: dict[str, Any], *names: str) -> Any:
     raise KeyError(f"none of {names} in {sorted(row)[:12]}")
 
 
+def text(value: Any, join: str = " ") -> str:
+    """One string from a field that may hold several passages.
+
+    MedHallu's Knowledge column is an ndarray of about three passages. ``str()`` on one of
+    those is numpy's repr, brackets and quotes and no separator, and that is what every
+    medical score in this benchmark was computed against until this was fixed: 100 percent
+    of medical evidence began with a literal "['".
+
+    The guards elsewhere in this module tested ``isinstance(value, list | tuple)``, which an
+    ndarray is not, so each loader had to know its own field's container type and the one
+    that did not was silently wrong. Every claim, evidence and group label goes through here
+    now, so a new loader cannot reintroduce it.
+    """
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, dict):
+        # Refused rather than stringified. Fin-Fact's evidence is a list of
+        # {sentence, hrefs} and joining those with str() put dict punctuation and a list of
+        # archive URLs into the evidence text. A loader has to say which field it means.
+        raise TypeError(f"text() needs a string or a sequence of strings, not a mapping: {sorted(value)}")
+    if isinstance(value, list | tuple):
+        return join.join(text(v, join) for v in value).strip()
+    return str(value).strip()
+
+
 def scientific(root: Path = RAW) -> pd.DataFrame:
     """SciFact: a claim against each abstract a reviewer cited for it.
 
     Unsupported covers both CONTRADICT and an abstract that says nothing about the claim,
     which is what "not supported by this evidence" means here.
 
-    The claim id is ``scifact-<split>-<claim id>-<doc id>``, which is the key Evidence Gate
-    used for the same rows. ``scripts/import_evidence_gate.py`` depends on that, and checks
-    the label it imports against the label here rather than trusting the id alone.
+    The claim id is ``scifact-<split>-<claim id>-<doc id>``, so a score can be traced back
+    to the pair it was computed on, and a resumed run matches its cache by it.
     """
     domain = DOMAINS["scientific"]
     claims_train, claims_validation, corpus_file = domain.files
     corpus = _read(_hub(domain.repo, corpus_file, root, domain.revision))
-    docs = {int(r["doc_id"]): " ".join([str(r["title"]), *[str(x) for x in r["abstract"]]]) for r in corpus}
+    docs = {int(r["doc_id"]): text([r["title"], r["abstract"]]) for r in corpus}
     rows = []
     for split, name in (("train", claims_train), ("validation", claims_validation)):
         claims = _read(_hub(domain.repo, name, root, domain.revision))
@@ -114,7 +138,7 @@ def scientific(root: Path = RAW) -> pd.DataFrame:
                     {
                         "claim_id": f"scifact-{split}-{r['id']}-{doc_id}",
                         "domain": "scientific",
-                        "claim": str(r["claim"]),
+                        "claim": text(r["claim"]),
                         "evidence": passage,
                         "supported": label == "SUPPORT",
                         "group_id": f"doc-{doc_id}",
@@ -129,14 +153,13 @@ def medical(root: Path = RAW) -> pd.DataFrame:
     domain = DOMAINS["medical"]
     rows = []
     for i, row in enumerate(_read(_hub(domain.repo, domain.files[0], root, domain.revision))):
-        knowledge = str(_first(row, "Knowledge", "knowledge", "context"))
-        question = str(_first(row, "Question", "question"))
-        good = str(_first(row, "Ground Truth", "ground_truth", "answer"))
-        bad = str(_first(row, "Hallucinated Answer", "hallucinated_answer"))
+        knowledge = text(_first(row, "Knowledge", "knowledge", "context"))
+        question = text(_first(row, "Question", "question"))
+        good = text(_first(row, "Ground Truth", "ground_truth", "answer"))
+        bad = text(_first(row, "Hallucinated Answer", "hallucinated_answer"))
         for kind, answer, supported in (("gt", good, True), ("h", bad, False)):
             rows.append(
                 {
-                    # Evidence Gate's key, so its cached scores can be reused.
                     "claim_id": f"labeled-{i}-{kind}",
                     "domain": "medical",
                     "claim": f"{question} {answer}".strip(),
@@ -170,10 +193,8 @@ def general(root: Path = RAW) -> pd.DataFrame:
     rows = []
     for name in domain.files:
         for i, row in enumerate(_read(_hub(domain.repo, name, root, domain.revision))):
-            passages = _first(row, "context", "passages", "source_info", "prompt")
-            if isinstance(passages, list | tuple):
-                passages = "\n".join(str(p) for p in passages)
-            answer = str(_first(row, "response", "answer", "output"))
+            passages = text(_first(row, "context", "passages", "source_info", "prompt"), "\n")
+            answer = text(_first(row, "response", "answer", "output"))
             # RAGTruth names these columns hallucination_labels, a list of spans, and
             # hallucination_labels_processed, a count per kind. Neither was being read, so
             # labels was always empty and every answer came out supported. The two agree on
@@ -189,7 +210,7 @@ def general(root: Path = RAW) -> pd.DataFrame:
                     "claim_id": f"ragtruth-{name.split('/')[1]}-{i}",
                     "domain": "general",
                     "claim": answer,
-                    "evidence": str(passages),
+                    "evidence": passages,
                     "supported": not flagged,
                     "group_id": str(row.get("task_type") or row.get("source_id") or "answer"),
                     "source": "ragtruth",
@@ -222,8 +243,8 @@ def legal(root: Path = RAW) -> pd.DataFrame:
                     # contractnli_a, so the directory alone collides across them.
                     "claim_id": f"contractnli-{Path(name).parent.name}-{i}",
                     "domain": "legal",
-                    "claim": str(_first(row, "hypothesis", "claim")),
-                    "evidence": str(_first(row, "premise", "text", "document")),
+                    "claim": text(_first(row, "hypothesis", "claim")),
+                    "evidence": text(_first(row, "premise", "text", "document")),
                     "supported": label.startswith("e"),
                     "group_id": str(row.get("document_id") or row.get("file_name") or f"doc-{i}"),
                     "source": "contract-nli",
@@ -240,17 +261,22 @@ def financial(root: Path = RAW) -> pd.DataFrame:
         label = str(_first(row, "label", "verdict")).strip().lower()
         if label.startswith("n"):
             continue  # not enough information
-        evidence = _first(row, "evidence", "justification")
-        if isinstance(evidence, list | tuple):
-            evidence = " ".join(str(e) for e in evidence)
+        raw = _first(row, "evidence", "justification")
+        if isinstance(raw, np.ndarray):
+            raw = raw.tolist()
+        # Only the sentences. Each element is {sentence, hrefs}, and the hrefs are archive
+        # URLs: noise to a grounding checker, and tokens spent out of the 512 the model has.
+        if isinstance(raw, list | tuple):
+            raw = [e["sentence"] if isinstance(e, dict) else e for e in raw]
+        evidence = text(raw)
         rows.append(
             {
                 "claim_id": f"finfact-{i}",
                 "domain": "financial",
-                "claim": str(_first(row, "claim")),
-                "evidence": str(evidence),
+                "claim": text(_first(row, "claim")),
+                "evidence": evidence,
                 "supported": label.startswith("t"),
-                "group_id": str(row.get("issues") or row.get("sector") or "finance"),
+                "group_id": text(row.get("issues") or row.get("sector") or "finance"),
                 "source": "fin-fact",
             }
         )
