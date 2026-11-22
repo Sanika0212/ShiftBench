@@ -76,5 +76,10 @@ CREATE TABLE IF NOT EXISTS shiftbench.leaderboard (
   worst_gap FLOAT64 NOT NULL,
   promise_kept FLOAT64,
   mean_false_alarms FLOAT64 NOT NULL,
-  labels_to_recover FLOAT64    -- null where no budget reached the tolerance
+  -- Smallest budget at which EVERY target domain lands within tolerance on 90% of draws.
+  -- Null where no budget tried cleared that bar on every target.
+  labels_to_recover FLOAT64,
+  -- How close the hardest target got, at the budget that suited it best. Tells a null
+  -- labels_to_recover apart from a measurement that never ran.
+  hardest_target_recovery FLOAT64
 );

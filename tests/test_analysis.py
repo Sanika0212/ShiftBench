@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from shiftbench.analysis import budgets, drift, drift_predicts_loss, evaluate_pair, leaderboard, matrix
 
@@ -110,6 +111,84 @@ def test_the_leaderboard_breaks_a_tie_on_cost_not_on_over_flagging() -> None:
     board = leaderboard(pairs, pd.DataFrame(columns=["detector", "labels", "within_tolerance"]))
     assert list(board["promise_kept"]) == [1.0, 1.0]  # the tie is real
     assert next(iter(board["detector"])) == "precise"
+
+
+def test_the_label_budget_has_to_clear_the_bar_on_every_target() -> None:
+    """One easy target is not a recovered promise.
+
+    The rule took the smallest budget over all (detector, target) rows, so a single domain
+    crossing 90% of draws within tolerance published that budget as the detector's. On the
+    real run it reported 50 labels for word-overlap on the strength of one target of five,
+    while the other four sat between 0.78 and 0.84 at the same budget, and no target at all
+    cleared the bar at 100 or 200. A budget that more labels undo was never a budget.
+    """
+    pairs = pd.DataFrame(
+        [
+            {
+                "detector": "d",
+                "source": "x",
+                "target": "y",
+                "method": "split",
+                "threshold": 0.5,
+                "promised": 0.90,
+                "achieved": 0.80,
+                "achieved_low": 0.79,
+                "achieved_high": 0.81,
+                "false_alarms": 0.3,
+                "gap": -0.10,
+                "n_source": 400,
+                "n_target": 400,
+                "weight_spread": float("nan"),
+                "domain_separability": float("nan"),
+            }
+        ]
+    )
+    curves = pd.DataFrame(
+        [
+            {"detector": "d", "target": "easy", "labels": 50, "within_tolerance": 0.98},
+            {"detector": "d", "target": "hard", "labels": 50, "within_tolerance": 0.62},
+            {"detector": "d", "target": "easy", "labels": 400, "within_tolerance": 0.96},
+            {"detector": "d", "target": "hard", "labels": 400, "within_tolerance": 0.93},
+        ]
+    )
+    board = leaderboard(pairs, curves)
+    row = board.iloc[0]
+    assert row["labels_to_recover"] == 400  # not 50, where only "easy" was there
+    assert row["hardest_target_recovery"] == pytest.approx(0.93)
+
+
+def test_a_budget_that_never_recovers_still_reports_how_close_it_came() -> None:
+    pairs = pd.DataFrame(
+        [
+            {
+                "detector": "d",
+                "source": "x",
+                "target": "y",
+                "method": "split",
+                "threshold": 0.5,
+                "promised": 0.90,
+                "achieved": 0.70,
+                "achieved_low": 0.69,
+                "achieved_high": 0.71,
+                "false_alarms": 0.3,
+                "gap": -0.20,
+                "n_source": 400,
+                "n_target": 400,
+                "weight_spread": float("nan"),
+                "domain_separability": float("nan"),
+            }
+        ]
+    )
+    curves = pd.DataFrame(
+        [
+            {"detector": "d", "target": "easy", "labels": 400, "within_tolerance": 0.95},
+            {"detector": "d", "target": "hard", "labels": 400, "within_tolerance": 0.74},
+        ]
+    )
+    row = leaderboard(pairs, curves).iloc[0]
+    assert row["labels_to_recover"] != row["labels_to_recover"]  # nan, nothing cleared it
+    # An empty cell alone cannot be told from a measurement that never ran.
+    assert row["hardest_target_recovery"] == pytest.approx(0.74)
 
 
 def test_more_labels_buy_the_promise_back() -> None:

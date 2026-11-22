@@ -43,7 +43,11 @@ in the domain they were tuned on.
       target claims that got their own group's threshold, so a run that falls back says so.
    4. `oracle`, fitted on the target's own labels. The ceiling nobody has.
 4. **Price the repair**: label k target claims, recalibrate on them, measure on the rest, over
-   many draws. The curve says what k buys.
+   many draws. The curve says what k buys. The budget a detector is credited with is the
+   smallest one that lands within tolerance on 90% of draws in every target domain. Taking
+   the smallest over all domains instead credited the easiest one: word-overlap was reported
+   as recovering at 50 labels because one target of five crossed the bar there while the
+   other four sat between 0.78 and 0.84, and no target cleared it at 100 or 200.
 5. **Ask whether anything warned first**: PSI and MMD on the score distributions need no
    labels at all, so if either correlates with the recall actually lost, it is an early
    warning worth acting on. Both are close to direction-blind, coming out nearly the same
@@ -214,19 +218,56 @@ Every threshold promises 90% recall on unsupported claims, fitted on one domain 
 
 | detector | promise kept | mean gap | worst gap | false alarms | labels to recover |
 | --- | --- | --- | --- | --- | --- |
-| word-overlap | 55% | -0.036 | -0.343 | 0.76 | 50 |
+| nli | 55% | -0.067 | -0.437 | 0.62 | none up to 400 |
+| word-overlap | 55% | -0.021 | -0.263 | 0.78 | none up to 400 |
+| minicheck | 50% | -0.150 | -0.687 | 0.54 | none up to 400 |
+| embedding-similarity | 50% | -0.072 | -0.503 | 0.73 | none up to 400 |
 
 "Promise kept" is the share of ordered pairs whose achieved recall came within 0.02 of what was promised. The gap is achieved minus promised, so it is good near zero and a large positive one means the detector flags more than it was asked to. That is why detectors keeping as many promises are ranked by what the promise cost in false alarms rather than by the gap.
+
+"Labels to recover" is the smallest budget at which every target domain lands within tolerance on 90% of draws. Every target, not the easiest one: a budget that recovers the promise on one domain of five has not recovered the promise.
+
+No budget up to 400 cleared that bar for any of the 4 detectors. Those cells name the budget they were measured against rather than sitting empty, because an empty cell reads the same whether the measurement failed or was never taken. The share of draws the hardest target managed, at the budget that suited it best: nli at 76%, word-overlap at 78%, minicheck at 74%, embedding-similarity at 74%.
+
+**embedding-similarity**, recall achieved when the threshold is fitted on the row's domain and used on the column's, against a promise of 90%. The diagonal is a held-out half of the same domain, so it is a measurement and not a tautology.
+
+| fitted on | financial | general | legal | medical | scientific |
+| --- | --- | --- | --- | --- | --- |
+| financial | 0.91 | 0.71 | 0.94 | 0.57 | 0.94 |
+| general | 1.00 | 0.92 | 1.00 | 0.95 | 1.00 |
+| legal | 0.85 | 0.66 | 0.93 | 0.45 | 0.92 |
+| medical | 1.00 | 0.84 | 1.00 | 0.89 | 0.99 |
+| scientific | 0.82 | 0.64 | 0.87 | 0.40 | 0.90 |
+
+**minicheck**, recall achieved when the threshold is fitted on the row's domain and used on the column's, against a promise of 90%. The diagonal is a held-out half of the same domain, so it is a measurement and not a tautology.
+
+| fitted on | financial | general | legal | medical | scientific |
+| --- | --- | --- | --- | --- | --- |
+| financial | 0.88 | 1.00 | 1.00 | 1.00 | 0.99 |
+| general | 0.62 | 0.91 | 0.99 | 0.98 | 0.98 |
+| legal | 0.33 | 0.21 | 0.89 | 0.62 | 0.86 |
+| medical | 0.47 | 0.58 | 0.97 | 0.91 | 0.95 |
+| scientific | 0.39 | 0.34 | 0.93 | 0.78 | 0.97 |
+
+**nli**, recall achieved when the threshold is fitted on the row's domain and used on the column's, against a promise of 90%. The diagonal is a held-out half of the same domain, so it is a measurement and not a tautology.
+
+| fitted on | financial | general | legal | medical | scientific |
+| --- | --- | --- | --- | --- | --- |
+| financial | 0.91 | 0.85 | 0.98 | 1.00 | 0.96 |
+| general | 0.96 | 0.86 | 0.99 | 1.00 | 0.99 |
+| legal | 0.62 | 0.46 | 0.93 | 0.89 | 0.78 |
+| medical | 0.65 | 0.49 | 0.92 | 0.95 | 0.80 |
+| scientific | 0.77 | 0.64 | 0.95 | 0.95 | 0.89 |
 
 **word-overlap**, recall achieved when the threshold is fitted on the row's domain and used on the column's, against a promise of 90%. The diagonal is a held-out half of the same domain, so it is a measurement and not a tautology.
 
 | fitted on | financial | general | legal | medical | scientific |
 | --- | --- | --- | --- | --- | --- |
-| financial | 0.85 | 1.00 | 1.00 | 1.00 | 1.00 |
-| general | 0.66 | 0.93 | 0.96 | 0.95 | 0.94 |
-| legal | 0.64 | 0.88 | 0.99 | 0.92 | 0.93 |
-| medical | 0.56 | 0.84 | 0.87 | 0.95 | 0.89 |
-| scientific | 0.57 | 0.87 | 0.87 | 0.92 | 0.93 |
+| financial | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| general | 0.66 | 0.93 | 0.96 | 0.92 | 0.86 |
+| legal | 0.64 | 0.88 | 0.99 | 0.88 | 0.84 |
+| medical | 0.64 | 0.89 | 0.96 | 0.90 | 0.85 |
+| scientific | 0.74 | 0.93 | 0.98 | 0.96 | 0.95 |
 
 ### What the repairs are worth
 
@@ -234,13 +275,15 @@ The same pairs under each way of choosing the threshold. `oracle` is fitted on t
 
 | method | mean recall | within tolerance | mean false alarms |
 | --- | --- | --- | --- |
-| split | 0.864 | 55% | 0.76 |
-| weighted | 0.866 | 50% | 0.76 |
-| mondrian | 0.864 | 55% | 0.76 |
-| oracle | 0.941 | 100% | 0.84 |
+| split | 0.822 | 52% | 0.67 |
+| weighted | 0.835 | 60% | 0.67 |
+| mondrian | 0.844 | 57% | 0.69 |
+| oracle | 0.912 | 100% | 0.71 |
 
-The weighted row comes with diagnostics, because there are two different reasons it could sit near the split row. The domain classifier separated the two domains perfectly on 10% of pairs, and the mean spread of its importance weights was 3.28.
-So the weights did vary, and the reweighting still moved mean recall by +0.003. That is a real negative result rather than a degenerate estimator: the density ratio had something to work with and reweighting the source towards the target did not recover the recall that the shift cost.
+The mondrian row carries the same kind of diagnostic. Its groups are quantiles of evidence length, so a group means the same thing in the target as in the source, and 100% of target claims were scored against their own group's threshold rather than the pooled fallback. It agrees exactly with split on 18% of pairs.
+
+The weighted row comes with diagnostics, because there are two different reasons it could sit near the split row. The domain classifier separated the two domains perfectly on 10% of pairs, and the mean spread of its importance weights was 3.06.
+So the weights did vary, and the reweighting still moved mean recall by +0.012. That is a real negative result rather than a degenerate estimator: the density ratio had something to work with and reweighting the source towards the target did not recover the recall that the shift cost.
 
 ### What it costs to get the promise back
 
@@ -248,24 +291,24 @@ Label k claims from the new domain, refit the threshold on them, measure on the 
 
 | labels | mean recall | spread | share of draws within tolerance | false alarms |
 | --- | --- | --- | --- | --- |
-| 25 | 0.931 | 0.085 | 77% | 0.85 |
-| 50 | 0.942 | 0.054 | 86% | 0.86 |
-| 100 | 0.925 | 0.051 | 78% | 0.83 |
-| 200 | 0.926 | 0.041 | 80% | 0.83 |
-| 400 | 0.933 | 0.034 | 83% | 0.83 |
+| 25 | 0.928 | 0.075 | 79% | 0.78 |
+| 50 | 0.925 | 0.056 | 80% | 0.76 |
+| 100 | 0.915 | 0.046 | 78% | 0.73 |
+| 200 | 0.910 | 0.036 | 78% | 0.72 |
+| 400 | 0.913 | 0.033 | 78% | 0.72 |
 
-The column that moves is the spread, from 0.085 at 25 labels to 0.034 at 400. Mean recall does not climb with the budget and is not supposed to: refitting on the target's own claims puts the threshold in the right place at every budget, and what more labels buy is a threshold that lands there reliably rather than one that happens to. A small sample gives a noisy threshold, and a noisy threshold that errs towards flagging looks like good recall on average while being wrong in both directions on any given draw.
+The column that moves is the spread, from 0.075 at 25 labels to 0.033 at 400. Mean recall does not climb with the budget and is not supposed to: refitting on the target's own claims puts the threshold in the right place at every budget, and what more labels buy is a threshold that lands there reliably rather than one that happens to. A small sample gives a noisy threshold, and a noisy threshold that errs towards flagging looks like good recall on average while being wrong in both directions on any given draw.
 
 ### Did anything warn before the labels arrived
 
-PSI and MMD on the score distributions need no target labels, so they are the only warning available in advance. Spearman correlation against the recall the shipped threshold lost, over 20 ordered pairs.
+PSI and MMD on the score distributions need no target labels, so they are the only warning available in advance. Spearman correlation against the recall the shipped threshold lost, over 80 ordered pairs.
 
 | statistic | against signed loss | against absolute loss | among pairs that broke |
 | --- | --- | --- | --- |
-| PSI | -0.21 | +0.68 | +0.73 |
-| MMD | -0.07 | +0.82 | +0.81 |
+| PSI | -0.08 | +0.44 | +0.54 |
+| MMD | +0.00 | +0.46 | +0.56 |
 
-The last column is the one to read, over the 10 pairs where the promise actually broke. The first is near zero or negative, and that is arithmetic rather than a result: a score-distribution statistic is close to direction-blind, coming out nearly the same for a pair and for its reverse, while the loss does not. Shipping a threshold from an easy domain to a hard one loses recall and the reverse over-recalls, which pins the loss at its floor however large the drift, so correlating over both directions mixes a relationship with its mirror image. A high reading means recalibrate and measure, not that the promise moved in a particular direction.
+The last column is the one to read, over the 40 pairs where the promise actually broke. The first is near zero or negative, and that is arithmetic rather than a result: a score-distribution statistic is close to direction-blind, coming out nearly the same for a pair and for its reverse, while the loss does not. Shipping a threshold from an easy domain to a hard one loses recall and the reverse over-recalls, which pins the loss at its floor however large the drift, so correlating over both directions mixes a relationship with its mirror image. A high reading means recalibrate and measure, not that the promise moved in a particular direction.
 <!-- RESULTS:end -->
 
 ## The warehouse and the site

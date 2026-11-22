@@ -90,6 +90,7 @@ def results(tmp_path: Path, weighted_spread: float, separability: float) -> Path
                 "promise_kept": 0.5,
                 "mean_false_alarms": 0.3,
                 "labels_to_recover": float("nan"),
+                "hardest_target_recovery": 0.8,
             }
         ]
     ).to_parquet(root / "leaderboard.parquet", index=False)

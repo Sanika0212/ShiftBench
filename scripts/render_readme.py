@@ -59,8 +59,13 @@ def leaderboard(data: dict[str, Any]) -> list[str]:
         "| detector | promise kept | mean gap | worst gap | false alarms | labels to recover |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
+    ceiling = int(data["budgets"]["labels"].max())
+    short = []
     for r in board.itertuples(index=False):
-        labels = "n/a" if r.labels_to_recover != r.labels_to_recover else f"{int(r.labels_to_recover)}"
+        reached = r.labels_to_recover == r.labels_to_recover
+        labels = f"{int(r.labels_to_recover)}" if reached else f"none up to {ceiling}"
+        if not reached:
+            short.append((r.detector, r.hardest_target_recovery))
         lines.append(
             f"| {r.detector} | {r.promise_kept:.0%} | {r.mean_gap:+.3f} | {r.worst_gap:+.3f} | "
             f"{r.mean_false_alarms:.2f} | {labels} |"
@@ -73,7 +78,26 @@ def leaderboard(data: dict[str, Any]) -> list[str]:
         "asked to. That is why detectors keeping as many promises are ranked by what the "
         "promise cost in false alarms rather than by the gap.",
         "",
+        '"Labels to recover" is the smallest budget at which every target domain lands within '
+        "tolerance on 90% of draws. Every target, not the easiest one: a budget that recovers "
+        "the promise on one domain of five has not recovered the promise.",
+        "",
     ]
+    if short:
+        worst = ", ".join(f"{name} at {value:.0%}" for name, value in short)
+        who = (
+            f"any of the {len(board)} detectors"
+            if len(short) == len(board)
+            else f"{len(short)} of the {len(board)} detectors"
+        )
+        lines += [
+            f"No budget up to {ceiling} cleared that bar for {who}. Those cells name the "
+            "budget they were measured against rather than sitting empty, because an empty "
+            "cell reads the same whether the measurement failed or was never taken. The share "
+            "of draws the hardest target managed, at the budget that suited it best: "
+            f"{worst}.",
+            "",
+        ]
     return lines
 
 

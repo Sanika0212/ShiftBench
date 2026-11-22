@@ -307,7 +307,13 @@ def leaderboard(
     for detector, group in shifted.groupby("detector"):
         kept = group[group["achieved"] >= group["promised"] - tolerance]
         recovered = budget_curves[budget_curves["detector"] == detector]
-        enough = recovered[recovered["within_tolerance"] >= 0.9]
+        # The bar has to clear on every target, not on the easiest one. Taking the minimum
+        # budget over all (detector, target) rows published the best case as the case: it
+        # reported 50 labels for word-overlap because one target of five crossed 0.9 at that
+        # budget while the other four sat between 0.78 and 0.84, and the same detector had no
+        # target above the bar at 100 or 200. A budget that more labels undo is not a budget.
+        floor = recovered.groupby("labels")["within_tolerance"].min()
+        enough = floor[floor >= 0.9]
         rows.append(
             {
                 "detector": detector,
@@ -316,7 +322,10 @@ def leaderboard(
                 "worst_gap": float(group["gap"].min()),
                 "promise_kept": float(len(kept) / len(group)) if len(group) else float("nan"),
                 "mean_false_alarms": float(group["false_alarms"].mean()),
-                "labels_to_recover": float(enough["labels"].min()) if len(enough) else float("nan"),
+                "labels_to_recover": float(enough.index.min()) if len(enough) else float("nan"),
+                # How close the hardest target got, at the budget that suited it best. Without
+                # it an empty labels_to_recover cannot be told from one that was never measured.
+                "hardest_target_recovery": float(floor.max()) if len(floor) else float("nan"),
             }
         )
     board = pd.DataFrame(rows)

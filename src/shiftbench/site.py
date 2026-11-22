@@ -72,7 +72,10 @@ def render(results: dict[str, pd.DataFrame], promised: float = 0.90) -> str:
     board, pairs = results["leaderboard"], results.get("pairs")
     rows = []
     for _, r in board.iterrows():
-        labels = "n/a" if r["labels_to_recover"] != r["labels_to_recover"] else int(r["labels_to_recover"])
+        # "none tried" rather than "n/a": the budgets were measured and none of them cleared
+        # the bar on every target, which is a result and not a missing measurement.
+        reached = r["labels_to_recover"] == r["labels_to_recover"]
+        labels = int(r["labels_to_recover"]) if reached else "none tried"
         rows.append(
             f"<tr><td>{r['detector']}</td>"
             f"<td class=num>{r['promise_kept']:.0%}</td>"

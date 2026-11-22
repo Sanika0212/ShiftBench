@@ -1,6 +1,9 @@
 {
   "promised": 0.9,
   "detectors": [
+    "embedding-similarity",
+    "minicheck",
+    "nli",
     "word-overlap"
   ],
   "domains": [
@@ -12,13 +15,13 @@
   ],
   "claims": 3000,
   "drift_predicts_loss": {
-    "pairs": 20.0,
-    "undercovering_pairs": 10.0,
-    "psi_spearman": -0.20838231756288017,
-    "psi_spearman_absolute": 0.6777733783376574,
-    "psi_spearman_undercovering": 0.7333333333333332,
-    "mmd_spearman": -0.06956546100918437,
-    "mmd_spearman_absolute": 0.8170538952284669,
-    "mmd_spearman_undercovering": 0.8060606060606059
+    "pairs": 80.0,
+    "undercovering_pairs": 40.0,
+    "psi_spearman": -0.07725677598758841,
+    "psi_spearman_absolute": 0.4440277284125884,
+    "psi_spearman_undercovering": 0.5405329425250835,
+    "mmd_spearman": 0.004255447711688449,
+    "mmd_spearman_absolute": 0.46299055620183077,
+    "mmd_spearman_undercovering": 0.5640833276272874
   }
 }

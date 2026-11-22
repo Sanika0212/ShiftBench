@@ -20,6 +20,7 @@ def board() -> pd.DataFrame:
                 "promise_kept": 0.75,
                 "mean_false_alarms": 0.21,
                 "labels_to_recover": 100.0,
+                "hardest_target_recovery": 0.94,
             },
             {
                 "detector": "word-overlap",
@@ -29,6 +30,7 @@ def board() -> pd.DataFrame:
                 "promise_kept": 0.08,
                 "mean_false_alarms": 0.55,
                 "labels_to_recover": float("nan"),
+                "hardest_target_recovery": 0.71,
             },
         ]
     )
@@ -64,10 +66,12 @@ def test_the_page_lists_every_detector_and_its_numbers() -> None:
     assert "100" in html  # labels to recover
 
 
-def test_a_detector_that_never_recovers_shows_a_dash_not_a_nan() -> None:
+def test_a_detector_that_never_recovers_says_so_rather_than_showing_a_nan() -> None:
     html = render({"leaderboard": board()})
     assert "nan" not in html.lower()
-    assert "n/a" in html
+    # Not "n/a". The budgets were measured and none of them cleared the bar, which is a
+    # result; "n/a" reads as a measurement that was never taken.
+    assert "none tried" in html
 
 
 def test_the_matrix_marks_a_kept_promise_differently_from_a_broken_one() -> None:
